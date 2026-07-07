@@ -69,3 +69,84 @@ VTpass dashboard before using them here.
 
 All `Bearer` routes expect `Authorization: Bearer <Firebase ID token>` —
 get it in the frontend with `await auth.currentUser.getIdToken()`.
+
+## Request / response examples
+
+All bodies are JSON. `$TOKEN` = a Firebase ID token, `$API` = the base URL
+(`http://localhost:4000` locally).
+
+### Create/fetch profile
+
+```bash
+curl -X POST $API/api/users -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"fullName":"Jane Doe","phone":"08012345678"}'
+# → { "user": { "uid": "...", "accountNumber": "01234567890", "balance": 0, ... } }
+
+curl $API/api/users/me -H "Authorization: Bearer $TOKEN"
+# → { "user": { ...profile, "transactions": [ { "id", "type", "title", "amount", "date", "category", "reference" }, ... ] } }
+```
+
+### Deposit
+
+```bash
+curl -X POST $API/api/deposits/verify -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"reference":"NB-1234567890-1"}'
+# → { "success": true, "amount": 1000 }
+# Errors: 400 payment not confirmed / email mismatch, 404 user not found
+```
+
+### Bank transfer
+
+```bash
+curl -X POST $API/api/transfers -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accountNumber":"0123456789","bankCode":"058","accountName":"Jane Doe","amount":500,"narration":"Rent"}'
+# → { "success": true, "status": "success", "reference": "TRF-..." }
+# 502 "Transfers are not fully configured yet..." → disable OTP in Paystack Settings → Preferences
+```
+
+### Wallet-to-wallet transfer
+
+```bash
+curl $API/api/wallet-transfers/lookup/01234567890 -H "Authorization: Bearer $TOKEN"
+# → { "fullName": "Jane Doe" }
+
+curl -X POST $API/api/wallet-transfers -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accountNumber":"01234567890","amount":500,"narration":"Lunch"}'
+# → { "success": true, "reference": "WTX-...", "recipientName": "Jane Doe" }
+```
+
+### VTU — data plans must be fetched before purchase
+
+```bash
+curl $API/api/vtu/data-plans/mtn -H "Authorization: Bearer $TOKEN"
+# → VTpass's raw response; plan list is under content.varations (note VTpass's
+#   own spelling), each with { variation_code, name, variation_amount }
+
+curl -X POST $API/api/vtu/data -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"network":"mtn","phone":"08011111111","variationCode":"<from data-plans>","amount":<matching variation_amount>}'
+```
+
+### VTU — airtime
+
+```bash
+curl -X POST $API/api/vtu/airtime -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"network":"mtn","phone":"08011111111","amount":200}'
+# Sandbox test phone numbers (see main README/chat history for the full table):
+# 08011111111 = success, anything else = failed
+```
+
+### VTU — bill (electricity / cable)
+
+```bash
+curl -X POST $API/api/vtu/bill -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"billType":"electricity","provider":"EKEDC","meterNumber":"1234567890","amount":2000,"meterType":"prepaid"}'
+# cable requires variationCode from /api/vtu/cable-plans/:provider first
+```
+
+**Every route returns errors as** `{ "error": "message" }` with a matching
+HTTP status (400 validation, 401 auth, 404 not found, 502 upstream failure).

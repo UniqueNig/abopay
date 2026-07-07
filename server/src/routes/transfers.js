@@ -40,6 +40,19 @@ router.post(
         narration,
       });
 
+      // Paystack returns status "otp" when the account has "Confirm transfers
+      // before sending" enabled (Dashboard → Settings → Preferences) — the
+      // transfer isn't actually complete until a second API call finalizes it
+      // with an OTP code, which this app has no flow for. Debiting the wallet
+      // here would charge the user for a transfer stuck pending confirmation
+      // with no way to complete or reconcile it. Fail loudly instead.
+      if (transferData.status === "otp") {
+        throw new ApiError(
+          502,
+          "Transfers are not fully configured yet. Disable \"Confirm transfers before sending\" in Paystack Settings → Preferences."
+        );
+      }
+
       // Debit only after Paystack accepts the transfer.
       await debitWallet(user.uid, amount, transferRef, `Transfer to ${accountNumber}`, "↗️", {
         bank: bankCode,
