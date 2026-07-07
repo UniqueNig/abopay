@@ -3,14 +3,20 @@ import { getAuth } from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDFNkPhGrIMfkFAPKMYuOf46T9jw8RUVlA",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "abopay-53bc4.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "abopay-53bc4",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "abopay-53bc4.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "923181784158",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:923181784158:web:2404543da727d44c53a8cf",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-MBH4KPHK5Z",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
+
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+  throw new Error(
+    "Missing Firebase config — copy .env.example to .env and fill in the VITE_FIREBASE_* values."
+  );
+}
 
 const app = initializeApp(firebaseConfig);
 
