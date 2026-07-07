@@ -61,9 +61,11 @@ VTpass dashboard before using them here.
 | POST | `/api/transfers` | Bearer | bank transfer via Paystack Transfers API |
 | GET | `/api/wallet-transfers/lookup/:accountNumber` | Bearer | resolve an Abopay account number to a display name (confirm-before-send) |
 | POST | `/api/wallet-transfers` | Bearer | wallet-to-wallet transfer to another Abopay user, by account number — body: `{ accountNumber, amount, narration? }` |
+| GET | `/api/vtu/data-plans/:network` | Bearer | real VTpass data bundle codes/prices for a network — call before showing plan options |
+| GET | `/api/vtu/cable-plans/:provider` | Bearer | real VTpass cable bouquet codes/prices for a provider |
 | POST | `/api/vtu/airtime` | Bearer | VTpass airtime |
-| POST | `/api/vtu/data` | Bearer | VTpass data bundle |
-| POST | `/api/vtu/bill` | Bearer | VTpass electricity/cable |
+| POST | `/api/vtu/data` | Bearer | VTpass data bundle — `variationCode` must come from `/data-plans`, not be guessed |
+| POST | `/api/vtu/bill` | Bearer | VTpass electricity/cable — cable requires `variationCode` from `/cable-plans` |
 
 All `Bearer` routes expect `Authorization: Bearer <Firebase ID token>` —
 get it in the frontend with `await auth.currentUser.getIdToken()`.

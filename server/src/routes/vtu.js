@@ -2,7 +2,7 @@ import { Router } from "express";
 import { body, validationResult } from "express-validator";
 import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
-import { VTPASS_SERVICE, vtpassPay } from "../services/vtpass.js";
+import { VTPASS_SERVICE, vtpassPay, vtpassVariations } from "../services/vtpass.js";
 import { debitWallet } from "../services/wallet.js";
 import { User } from "../models/User.js";
 
@@ -23,6 +23,30 @@ function checkValidation(req, res) {
   }
   return true;
 }
+
+// Real VTpass plan codes — the frontend must call this before letting a user
+// pick a data bundle, rather than guessing a variationCode like "mtn-1000".
+router.get("/data-plans/:network", requireAuth, async (req, res, next) => {
+  try {
+    const serviceID = VTPASS_SERVICE.data[req.params.network.toLowerCase()];
+    if (!serviceID) throw new ApiError(400, `Unknown network: ${req.params.network}`);
+    res.json(await vtpassVariations(serviceID));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Same idea for cable bouquets — Bills.jsx currently sends variationCode: "",
+// which VTpass will reject the same way it rejected the guessed data codes.
+router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
+  try {
+    const serviceID = VTPASS_SERVICE.cable[req.params.provider];
+    if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
+    res.json(await vtpassVariations(serviceID));
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.post(
   "/airtime",

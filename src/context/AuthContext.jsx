@@ -59,8 +59,16 @@ export const AuthProvider = ({ children }) => {
         try {
           await fetchUserData();
         } catch (err) {
-          console.error("Failed to load user profile:", err);
-          setUserData(null);
+          // No Mongo profile for this Firebase account yet — most likely an
+          // account created before this backend existed. Self-heal by creating
+          // it now (ensureUserProfile is idempotent) instead of 404-ing forever.
+          try {
+            await ensureUserProfile(firebaseUser.displayName || "", firebaseUser.phoneNumber || "");
+            await fetchUserData();
+          } catch (err2) {
+            console.error("Failed to load or create user profile:", err2);
+            setUserData(null);
+          }
         }
       } else {
         setUserData(null);

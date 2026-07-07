@@ -18,18 +18,19 @@ export const VTPASS_SERVICE = {
   cable: { DSTV: "dstv", GOtv: "gotv", StarTimes: "startimes" },
 };
 
+// Per VTpass's actual docs (vtpass.com/documentation/authentication/): POST
+// requests authenticate with api-key + secret-key headers — no Basic Auth,
+// no public-key (that pair is only for GET requests). The previous version of
+// this function sent all three, which is what caused "Invalid credentials".
 function headers() {
-  // VTpass requires both Basic auth (username:password encoded) AND an api-key header
-  const credentials = Buffer.from(`${env.vtpassPublicKey}:${env.vtpassSecretKey}`).toString("base64");
   return {
     "api-key": env.vtpassApiKey,
-    "public-key": env.vtpassPublicKey,
-    Authorization: `Basic ${credentials}`,
+    "secret-key": env.vtpassSecretKey,
     "Content-Type": "application/json",
   };
 }
 
-export async function vtpassPay(payload, timeout = 15000) {
+export async function vtpassPay(payload, timeout = 25000) {
   let res;
   try {
     res = await axios.post(`${env.vtpassBaseUrl}/pay`, payload, { headers: headers(), timeout });
@@ -48,11 +49,29 @@ export async function vtpassPay(payload, timeout = 15000) {
   return res.data;
 }
 
+// GET requests use api-key + public-key (per VTpass docs — different from the
+// api-key + secret-key pair used for POST /pay above). Used to fetch the real
+// variation codes for data bundles / cable bouquets — the frontend can't just
+// guess a code like "mtn-1000", VTpass has its own fixed list per service.
+export async function vtpassVariations(serviceID) {
+  try {
+    const res = await axios.get(`${env.vtpassBaseUrl}/service-variations`, {
+      params: { serviceID },
+      headers: { "api-key": env.vtpassApiKey, "public-key": env.vtpassPublicKey },
+      timeout: 15000,
+    });
+    return res.data;
+  } catch (err) {
+    console.error("VTpass variations error:", err.response?.data || err.message);
+    throw new ApiError(502, "Could not load plans. Try again.");
+  }
+}
+
 export async function vtpassRequery(requestId) {
   const res = await axios.post(
     `${env.vtpassBaseUrl}/requery`,
     { request_id: requestId },
-    { headers: headers(), timeout: 15000 }
+    { headers: headers(), timeout: 25000 }
   );
   return res.data;
 }
