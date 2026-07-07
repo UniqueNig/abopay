@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#0d1b3e"/>
+  <text font-family="Syne, sans-serif" font-weight="800" font-size="28" letter-spacing="-1">
+    <tspan fill="#ffffff" x="7" y="28">Ab</tspan><tspan fill="#22c55e">o</tspan>
+    <tspan fill="#22c55e" x="7" dy="28">pay</tspan>
+  </text>
+</svg>
