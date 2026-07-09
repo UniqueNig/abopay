@@ -1,6 +1,9 @@
 import { auth } from "./firebase";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+// Strip any trailing slash(es) — VITE_API_URL="https://host.com/" would
+// otherwise produce a double-slash URL ("https://host.com//api/...") that
+// doesn't match any Express route and fails silently.
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 
 async function request(path, options = {}) {
   const user = auth.currentUser;
