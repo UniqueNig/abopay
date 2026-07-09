@@ -2,13 +2,14 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   FiGrid, FiSend, FiFileText, FiSmartphone,
-  FiTrendingUp, FiLogOut, FiX, FiPlusCircle,
+  FiTrendingUp, FiLogOut, FiX, FiPlusCircle, FiList,
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import abopayLogo from "../assets/abopay-logo.png";
 
 const navItems = [
   { to: "/dashboard", icon: <FiGrid size={17} />, label: "Overview" },
+  { to: "/transactions", icon: <FiList size={17} />, label: "Transactions" },
   { to: "/deposit", icon: <FiPlusCircle size={17} />, label: "Deposit", highlight: true },
   { to: "/transfer", icon: <FiSend size={17} />, label: "Transfer" },
   { to: "/bills", icon: <FiFileText size={17} />, label: "Pay Bills" },

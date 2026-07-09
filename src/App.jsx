@@ -7,6 +7,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
+import Transactions from "./pages/Transactions";
 import Deposit from "./pages/Deposit";
 import Transfer from "./pages/Transfer";
 import Bills from "./pages/Bills";
@@ -22,6 +23,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
           <Route path="/deposit" element={<ProtectedRoute><Deposit /></ProtectedRoute>} />
           <Route path="/transfer" element={<ProtectedRoute><Transfer /></ProtectedRoute>} />
           <Route path="/bills" element={<ProtectedRoute><Bills /></ProtectedRoute>} />

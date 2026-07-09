@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../components/DashboardLayout";
+import TransactionDetailModal from "../components/TransactionDetailModal";
 import { useAuth } from "../context/AuthContext";
 import { formatNaira, formatDate, formatTime } from "../utils/helpers";
 import {
@@ -18,6 +19,7 @@ const quickActions = [
 const Dashboard = () => {
   const { userData, user } = useAuth();
   const [hideBalance, setHideBalance] = useState(false);
+  const [selected, setSelected] = useState(null);
 
   const balance = userData?.balance ?? 0;
   const accountNo = userData?.accountNumber ?? "—";
@@ -100,7 +102,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-syne font-semibold text-white text-base">Recent Transactions</h2>
             {transactions.length > 0 && (
-              <button className="text-secondary font-dm text-xs hover:underline">View all</button>
+              <Link to="/transactions" className="text-secondary font-dm text-xs hover:underline">View all</Link>
             )}
           </div>
 
@@ -124,9 +126,10 @@ const Dashboard = () => {
               </div>
             ) : (
               transactions.map((tx, i) => (
-                <div
+                <button
                   key={tx.id || i}
-                  className={`flex items-center justify-between p-4 ${i < transactions.length - 1 ? "border-b border-white/5" : ""}`}
+                  onClick={() => setSelected(tx)}
+                  className={`w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors ${i < transactions.length - 1 ? "border-b border-white/5" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-base">
@@ -153,12 +156,14 @@ const Dashboard = () => {
                       {tx.type === "debit" ? "-" : "+"}{formatNaira(tx.amount)}
                     </span>
                   </div>
-                </div>
+                </button>
               ))
             )}
           </div>
         </div>
       </div>
+
+      {selected && <TransactionDetailModal transaction={selected} onClose={() => setSelected(null)} />}
     </DashboardLayout>
   );
 };
