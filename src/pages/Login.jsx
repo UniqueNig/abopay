@@ -20,7 +20,8 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
-  const { login, loginWithGoogle } = useAuth();
+  const [resetSent, setResetSent] = useState(false);
+  const { login, loginWithGoogle, resetPassword } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -34,6 +35,21 @@ const Login = () => {
       setError("Invalid email or password. Please try again.");
     }
     setLoading(false);
+  };
+
+  const handleForgotPassword = async () => {
+    setError("");
+    setResetSent(false);
+    if (!email) {
+      setError("Enter your email address above, then click \"Forgot password?\".");
+      return;
+    }
+    try {
+      await resetPassword(email);
+      setResetSent(true);
+    } catch (err) {
+      setError("Could not send reset email. Check the address and try again.");
+    }
   };
 
   const handleGoogle = async () => {
@@ -67,6 +83,12 @@ const Login = () => {
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-5 text-red-400 font-dm text-sm">
               {error}
+            </div>
+          )}
+
+          {resetSent && (
+            <div className="bg-secondary/10 border border-secondary/20 rounded-xl px-4 py-3 mb-5 text-secondary font-dm text-sm">
+              Password reset email sent to {email}. Check your inbox.
             </div>
           )}
 
@@ -126,9 +148,13 @@ const Login = () => {
             </div>
 
             <div className="flex justify-end">
-              <a href="#" className="text-secondary font-dm text-xs hover:underline">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-secondary font-dm text-xs hover:underline"
+              >
                 Forgot password?
-              </a>
+              </button>
             </div>
 
             <button

@@ -17,7 +17,15 @@ import vtuRouter from "./routes/vtu.js";
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: env.allowedOrigin }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header (curl, server-to-server, Paystack webhook) — allow.
+      if (!origin || env.allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    },
+  })
+);
 
 // Webhook route must be mounted BEFORE the global JSON parser: it needs the
 // raw request bytes (via express.raw(), applied in routes/webhooks.js) to

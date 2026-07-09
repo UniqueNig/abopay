@@ -21,7 +21,12 @@ if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON && !process.env.FIREBASE_SERVICE_
 
 export const env = {
   port: process.env.PORT || 4000,
-  allowedOrigin: process.env.ALLOWED_ORIGIN || "http://localhost:5173",
+  // Comma-separated so both a local dev frontend and the deployed one can hit
+  // the same backend without editing env vars every time you switch between them.
+  allowedOrigins: (process.env.ALLOWED_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
   mongodbUri: process.env.MONGODB_URI,
   firebaseServiceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
