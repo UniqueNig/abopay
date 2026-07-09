@@ -13,6 +13,7 @@ const Transfer = () => {
   const [showBankDropdown, setShowBankDropdown] = useState(false);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
   const balance = userData?.balance ?? 0;
 
@@ -28,7 +29,7 @@ const Transfer = () => {
     setShowBankDropdown(false);
   };
 
-  const handleVerify = (e) => {
+  const handleVerify = async (e) => {
     e.preventDefault();
     setError("");
     const amt = parseFloat(form.amount);
@@ -36,9 +37,20 @@ const Transfer = () => {
     if (form.accountNumber.length !== 10) { setError("Account number must be 10 digits."); return; }
     if (amt > balance) { setError("Insufficient balance. Please deposit more funds."); return; }
     if (amt < 100) { setError("Minimum transfer amount is ₦100."); return; }
-    // Use account number as display name until name enquiry is added
-    if (!form.accountName) setForm(p => ({ ...p, accountName: form.accountNumber }));
-    setStep(2);
+
+    setVerifying(true);
+    try {
+      // Resolve the real account holder's name so the user can confirm
+      // they're paying the right person before sending money.
+      const { accountName } = await api.get(
+        `/transfers/resolve-account?accountNumber=${form.accountNumber}&bankCode=${form.bankCode}`
+      );
+      setForm((p) => ({ ...p, accountName }));
+      setStep(2);
+    } catch (err) {
+      setError(err.message || "Could not verify account. Check the account number and bank.");
+    }
+    setVerifying(false);
   };
 
   const handleTransfer = async () => {
@@ -48,7 +60,6 @@ const Transfer = () => {
       const result = await api.post("/transfers", {
         accountNumber: form.accountNumber,
         bankCode: form.bankCode,
-        accountName: form.accountName || form.accountNumber,
         amount: parseFloat(form.amount),
         narration: form.narration || "Abopay Transfer",
       });
@@ -91,7 +102,7 @@ const Transfer = () => {
             <div>
               <h2 className="font-syne font-bold text-white text-xl mb-2">Transfer Initiated!</h2>
               <p className="text-white/60 font-dm text-sm">
-                <span className="text-secondary font-bold">{formatNaira(parseFloat(form.amount))}</span> sent to {form.accountNumber} · {form.bank}
+                <span className="text-secondary font-bold">{formatNaira(parseFloat(form.amount))}</span> sent to {form.accountName} · {form.bank}
               </p>
               <p className="text-white/35 font-dm text-xs mt-2">Bank transfers typically arrive within minutes.</p>
             </div>
@@ -168,9 +179,9 @@ const Transfer = () => {
                     className="input-field text-base" placeholder="What's this for?" maxLength={50} />
                 </div>
 
-                <button type="submit" disabled={!form.bank || !form.accountNumber}
+                <button type="submit" disabled={!form.bank || !form.accountNumber || verifying}
                   className="btn-primary flex items-center justify-center gap-2 mt-2 py-4 text-base disabled:opacity-50">
-                  <FiSend size={15} /> Continue
+                  <FiSend size={15} /> {verifying ? "Verifying account..." : "Continue"}
                 </button>
               </form>
             )}
@@ -180,9 +191,10 @@ const Transfer = () => {
                 <h3 className="font-syne font-semibold text-white text-base">Confirm Transfer</h3>
                 <div className="flex flex-col rounded-xl overflow-hidden border border-white/10">
                   {[
+                    { label: "Account Name", val: form.accountName, highlight: true },
                     { label: "Destination Bank", val: form.bank },
                     { label: "Account Number", val: form.accountNumber },
-                    { label: "Amount", val: formatNaira(parseFloat(form.amount)), highlight: true },
+                    { label: "Amount", val: formatNaira(parseFloat(form.amount)) },
                     { label: "Fee", val: "₦0.00" },
                     { label: "Narration", val: form.narration || "Abopay Transfer" },
                   ].map((r, i) => (

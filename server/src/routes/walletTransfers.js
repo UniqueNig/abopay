@@ -13,7 +13,7 @@ const router = Router();
 router.get(
   "/lookup/:accountNumber",
   requireAuth,
-  [param("accountNumber").isString().trim().isLength({ min: 11, max: 11 })],
+  [param("accountNumber").isString().trim().isLength({ min: 10, max: 10 })],
   async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
@@ -32,7 +32,7 @@ router.post(
   "/",
   requireAuth,
   [
-    body("accountNumber").isString().trim().isLength({ min: 11, max: 11 }).withMessage("accountNumber must be 11 digits."),
+    body("accountNumber").isString().trim().isLength({ min: 10, max: 10 }).withMessage("accountNumber must be 10 digits."),
     body("amount").isFloat({ gt: 0 }),
     body("narration").optional().isString().trim().isLength({ max: 100 }),
   ],

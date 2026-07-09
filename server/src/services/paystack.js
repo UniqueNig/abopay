@@ -18,6 +18,21 @@ export async function verifyTransaction(reference) {
   }
 }
 
+// Resolves an account number to the real name on the account, via Paystack's
+// bank verification (backed by NIBSS). Used so a user can see who they're
+// actually about to pay before confirming a transfer.
+export async function resolveAccountNumber({ accountNumber, bankCode }) {
+  try {
+    const res = await client.get("/bank/resolve", {
+      params: { account_number: accountNumber, bank_code: bankCode },
+    });
+    return res.data.data; // { account_number, account_name, bank_id }
+  } catch (err) {
+    console.error("Resolve account error:", err.response?.data || err.message);
+    throw new ApiError(400, "Could not verify account. Check the account number and bank.");
+  }
+}
+
 export async function createTransferRecipient({ accountName, accountNumber, bankCode }) {
   try {
     const res = await client.post("/transferrecipient", {

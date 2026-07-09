@@ -7,8 +7,9 @@ import { ApiError } from "../middleware/errorHandler.js";
 
 const router = Router();
 
+// 10 digits total, matching NUBAN length — "0" + a 9-digit random number.
 function generateAccountNumber() {
-  return "0" + Math.floor(Math.random() * 9000000000 + 1000000000);
+  return "0" + Math.floor(Math.random() * 900000000 + 100000000);
 }
 
 // Returns the user profile plus their 200 most recent transactions, mirroring
