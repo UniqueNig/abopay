@@ -13,6 +13,7 @@ import depositsRouter from "./routes/deposits.js";
 import transfersRouter from "./routes/transfers.js";
 import walletTransfersRouter from "./routes/walletTransfers.js";
 import vtuRouter from "./routes/vtu.js";
+import adminRouter from "./routes/admin.js";
 
 const app = express();
 
@@ -42,6 +43,11 @@ app.use("/api/deposits", apiLimiter, depositsRouter);
 app.use("/api/transfers", apiLimiter, transfersRouter);
 app.use("/api/wallet-transfers", apiLimiter, walletTransfersRouter);
 app.use("/api/vtu", apiLimiter, vtuRouter);
+
+// Separate, tighter limiter — admin routes expose sensitive data and can
+// move money, so they don't need the same headroom as regular user traffic.
+const adminLimiter = rateLimit({ windowMs: 60_000, max: 60 });
+app.use("/api/admin", adminLimiter, adminRouter);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

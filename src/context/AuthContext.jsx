@@ -20,6 +20,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const fetchUserData = async () => {
     const { user: profile } = await api.get("/users/me");
@@ -55,10 +56,32 @@ export const AuthProvider = ({ children }) => {
 
   const resetPassword = (email) => sendPasswordResetEmail(auth, email);
 
+  // Admin status lives on the Firebase ID token as a custom claim (`admin: true`),
+  // set server-side via the Firebase Admin SDK — see scripts/grant-admin.js.
+  // Force-refresh so a claim granted after the user's last login is picked up
+  // without requiring them to sign out and back in.
+  const checkAdminStatus = async (firebaseUser, forceRefresh = false) => {
+    if (!firebaseUser) {
+      setIsAdmin(false);
+      return false;
+    }
+    try {
+      const tokenResult = await firebaseUser.getIdTokenResult(forceRefresh);
+      const admin = tokenResult.claims?.admin === true;
+      setIsAdmin(admin);
+      return admin;
+    } catch (err) {
+      console.error("Failed to read admin claim:", err);
+      setIsAdmin(false);
+      return false;
+    }
+  };
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
+        await checkAdminStatus(firebaseUser, true);
         try {
           await fetchUserData();
         } catch (err) {
@@ -75,6 +98,7 @@ export const AuthProvider = ({ children }) => {
         }
       } else {
         setUserData(null);
+        setIsAdmin(false);
       }
       setLoading(false);
     });
@@ -87,12 +111,14 @@ export const AuthProvider = ({ children }) => {
         user,
         userData,
         loading,
+        isAdmin,
         signup,
         login,
         loginWithGoogle,
         logout,
         resetPassword,
         fetchUserData,
+        checkAdminStatus,
       }}
     >
       {!loading && children}

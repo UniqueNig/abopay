@@ -28,6 +28,7 @@ router.post(
 
       const user = await User.findOne({ uid: req.uid });
       if (!user) throw new ApiError(404, "User record not found.");
+      if (user.suspended) throw new ApiError(403, "This account has been suspended.");
 
       // Recompute from Paystack's own record of who paid — never trust client input for identity.
       if (user.email !== tx.customer?.email)

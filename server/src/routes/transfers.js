@@ -50,6 +50,7 @@ router.post(
 
       const user = await User.findOne({ uid: req.uid });
       if (!user) throw new ApiError(404, "User not found.");
+      if (user.suspended) throw new ApiError(403, "This account has been suspended.");
       if (user.balance < amount) throw new ApiError(400, "Insufficient balance.");
 
       // Resolve independently server-side — never trust a client-supplied name.

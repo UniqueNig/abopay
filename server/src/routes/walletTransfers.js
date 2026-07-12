@@ -45,10 +45,12 @@ router.post(
 
       const sender = await User.findOne({ uid: req.uid });
       if (!sender) throw new ApiError(404, "User not found.");
+      if (sender.suspended) throw new ApiError(403, "This account has been suspended.");
 
       const recipient = await User.findOne({ accountNumber });
       if (!recipient) throw new ApiError(404, "No Abopay account found with that account number.");
       if (recipient.uid === sender.uid) throw new ApiError(400, "You can't send money to yourself.");
+      if (recipient.suspended) throw new ApiError(400, "This recipient account is suspended and can't receive transfers.");
 
       const reference = "WTX-" + Date.now() + "-" + Math.floor(Math.random() * 100000);
 

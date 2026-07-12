@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AdminRoute from "./components/AdminRoute";
 
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -13,6 +14,10 @@ import Transfer from "./pages/Transfer";
 import Bills from "./pages/Bills";
 import Recharge from "./pages/Recharge";
 import Savings from "./pages/Savings";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminUserDetail from "./pages/admin/AdminUserDetail";
+import AdminTransactions from "./pages/admin/AdminTransactions";
 
 function App() {
   return (
@@ -29,6 +34,12 @@ function App() {
           <Route path="/bills" element={<ProtectedRoute><Bills /></ProtectedRoute>} />
           <Route path="/recharge" element={<ProtectedRoute><Recharge /></ProtectedRoute>} />
           <Route path="/savings" element={<ProtectedRoute><Savings /></ProtectedRoute>} />
+
+          {/* Admin routes — require the `admin` custom claim on the Firebase ID token */}
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+          <Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
+          <Route path="/admin/users/:uid" element={<AdminRoute><AdminUserDetail /></AdminRoute>} />
+          <Route path="/admin/transactions" element={<AdminRoute><AdminTransactions /></AdminRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

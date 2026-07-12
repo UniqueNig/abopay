@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
     balance: { type: Number, default: 0, min: 0 },
     savingsBalance: { type: Number, default: 0, min: 0 },
     accountNumber: { type: String, required: true, unique: true },
+    suspended: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
