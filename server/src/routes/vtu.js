@@ -2,7 +2,7 @@ import { Router } from "express";
 import { body, validationResult } from "express-validator";
 import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
-import { VTPASS_SERVICE, vtpassPay, vtpassVariations } from "../services/vtpass.js";
+import { VTPASS_SERVICE, vtpassPay, vtpassVariations, vtpassMerchantVerify } from "../services/vtpass.js";
 import { debitWallet } from "../services/wallet.js";
 import { User } from "../models/User.js";
 
@@ -44,6 +44,24 @@ router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
     const serviceID = VTPASS_SERVICE.cable[req.params.provider];
     if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
     res.json(await vtpassVariations(serviceID));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Confirms the smartcard belongs to a real active subscription and returns
+// the customer's name, so the frontend can show "Paying for: X" before the
+// user confirms — same trust pattern as the bank-transfer name resolution.
+router.get("/verify-cable/:provider/:smartCardNumber", requireAuth, async (req, res, next) => {
+  try {
+    const serviceID = VTPASS_SERVICE.cable[req.params.provider];
+    if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
+    const content = await vtpassMerchantVerify({ billersCode: req.params.smartCardNumber, serviceID });
+    res.json({
+      customerName: content?.Customer_Name || null,
+      status: content?.Status || null,
+      dueDate: content?.Due_Date || null,
+    });
   } catch (err) {
     next(err);
   }

@@ -19,6 +19,9 @@ const Bills = () => {
   const [plansLoading, setPlansLoading] = useState(false);
   const [plansError, setPlansError] = useState("");
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [cableVerify, setCableVerify] = useState(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
   const balance = userData?.balance ?? 0;
   const isCable = selectedType?.id === "cable";
 
@@ -49,6 +52,25 @@ const Bills = () => {
       .catch(() => setPlansError("Could not load bouquets. Try again."))
       .finally(() => setPlansLoading(false));
   }, [isCable, form.provider]);
+
+  // Confirms the smartcard is a real active subscription and shows the
+  // account holder's name before payment — same trust pattern as resolving
+  // a bank account name before a transfer.
+  useEffect(() => {
+    if (!isCable || !form.provider || form.meterNumber.length < 10) {
+      setCableVerify(null);
+      setVerifyError("");
+      return;
+    }
+    setVerifyLoading(true);
+    setVerifyError("");
+    setCableVerify(null);
+    api
+      .get(`/vtu/verify-cable/${form.provider}/${form.meterNumber}`)
+      .then((res) => setCableVerify(res))
+      .catch(() => setVerifyError("Could not verify this smartcard number."))
+      .finally(() => setVerifyLoading(false));
+  }, [isCable, form.provider, form.meterNumber]);
 
   const displayAmount = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount || 0);
 
@@ -89,6 +111,7 @@ const Bills = () => {
     setSuccess(false); setSuccessData(null); setPaidAmount(0);
     setSelectedType(null); setForm({ provider: "", meterNumber: "", amount: "", meterType: "prepaid", phone: userData?.phone || "" }); setError("");
     setSelectedPlan(null); setCablePlans([]);
+    setCableVerify(null); setVerifyError("");
   };
 
   return (
@@ -211,6 +234,18 @@ const Bills = () => {
                     </label>
                     <input type="text" value={form.meterNumber} onChange={handleChange("meterNumber")}
                       className="input-field text-base" placeholder="Enter your number" required />
+                    {isCable && form.meterNumber.length >= 10 && (
+                      verifyLoading ? (
+                        <p className="text-white/40 font-dm text-xs mt-2">Verifying smartcard...</p>
+                      ) : verifyError ? (
+                        <p className="text-red-400 font-dm text-xs mt-2">{verifyError}</p>
+                      ) : cableVerify?.customerName ? (
+                        <div className="bg-secondary/10 border border-secondary/20 rounded-xl px-4 py-2.5 mt-2">
+                          <p className="text-white/50 font-dm text-[11px] mb-0.5">Verified Account</p>
+                          <p className="text-secondary font-syne font-semibold text-sm">{cableVerify.customerName}</p>
+                        </div>
+                      ) : null
+                    )}
                   </div>
 
                   <div>
@@ -258,7 +293,7 @@ const Bills = () => {
                     </div>
                   )}
 
-                  <button type="submit" disabled={loading || !form.provider || !form.phone || (isCable && !selectedPlan)}
+                  <button type="submit" disabled={loading || !form.provider || !form.phone || (isCable && (!selectedPlan || !cableVerify?.customerName))}
                     className="btn-primary mt-2 flex items-center justify-center gap-2 py-4 text-base disabled:opacity-60">
                     {loading ? "Processing..." : `Pay ${displayAmount ? formatNaira(displayAmount) : "Bill"} from Wallet`}
                   </button>

@@ -67,6 +67,27 @@ export async function vtpassVariations(serviceID) {
   }
 }
 
+// Confirms a cable smartcard number belongs to a real, active subscription
+// before payment — same trust pattern as resolving a bank account name
+// before a transfer. POST, so api-key + secret-key per VTpass's documented
+// rule. Deliberately does NOT surface a "renewal amount" from this response —
+// VTpass's own docs don't clearly confirm that field's exact name, and
+// guessing wrong could silently charge the wrong amount. The bouquet price
+// from vtpassVariations (already confirmed correct) is what's actually billed.
+export async function vtpassMerchantVerify({ billersCode, serviceID }) {
+  try {
+    const res = await axios.post(
+      `${env.vtpassBaseUrl}/merchant-verify`,
+      { billersCode, serviceID },
+      { headers: headers(), timeout: 15000 }
+    );
+    return res.data?.content;
+  } catch (err) {
+    console.error("VTpass merchant-verify error:", err.response?.data || err.message);
+    throw new ApiError(400, "Could not verify that smartcard number. Check it and try again.");
+  }
+}
+
 export async function vtpassRequery(requestId) {
   const res = await axios.post(
     `${env.vtpassBaseUrl}/requery`,

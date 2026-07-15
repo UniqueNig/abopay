@@ -29,6 +29,9 @@ router.get("/stats", requireAdmin, async (req, res, next) => {
   try {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
+    const sevenDaysAgo = new Date(startOfToday);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6); // today + 6 previous days = 7 total
 
     const [userStats] = await User.aggregate([
       { $group: { _id: null, totalUsers: { $sum: 1 }, totalBalance: { $sum: "$balance" } } },
@@ -39,6 +42,50 @@ router.get("/stats", requireAdmin, async (req, res, next) => {
 
     const newUsersToday = await User.countDocuments({ createdAt: { $gte: startOfToday } });
     const transactionsToday = await Transaction.countDocuments({ createdAt: { $gte: startOfToday } });
+
+    // Distinct users who transacted today.
+    const activeUserIdsToday = await Transaction.distinct("userId", { createdAt: { $gte: startOfToday } });
+    const activeUsersToday = activeUserIdsToday.length;
+
+    // "Deposits" = wallet top-ups specifically (creditWallet's default category
+    // for both instant Paystack verification and the async webhook path).
+    const depositMatch = { type: "credit", category: "💳" };
+    const [todaysDepositsAgg] = await Transaction.aggregate([
+      { $match: { ...depositMatch, createdAt: { $gte: startOfToday } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const [monthlyDepositsAgg] = await Transaction.aggregate([
+      { $match: { ...depositMatch, createdAt: { $gte: startOfMonth } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+
+    // We only ever persist a Transaction after VTpass/Paystack confirms
+    // success — a failed purchase never charges the wallet and never creates
+    // a record (see services/wallet.js). So "failed" is genuinely always 0
+    // here, and every stored transaction counts as successful by construction.
+    const failedTransactionsToday = 0;
+    const successfulTransactionsToday = transactionsToday;
+
+    // 7-day inflow series for the dashboard chart. "revenue" here means total
+    // money credited into wallets (deposits + incoming transfers), not a
+    // margin/fee figure — this app absorbs the Paystack fee rather than
+    // tracking it as separate revenue (see project notes on that decision).
+    const dailyInflow = await Transaction.aggregate([
+      { $match: { type: "credit", createdAt: { $gte: sevenDaysAgo } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          total: { $sum: "$amount" },
+        },
+      },
+    ]);
+    const inflowByDate = Object.fromEntries(dailyInflow.map((d) => [d._id, d.total]));
+    const revenueVsFailed = [...Array(7)].map((_, i) => {
+      const d = new Date(sevenDaysAgo);
+      d.setDate(d.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      return { date: key, revenue: inflowByDate[key] || 0, failed: 0 };
+    });
 
     const recentUsers = await User.find()
       .sort({ createdAt: -1 })
@@ -64,6 +111,12 @@ router.get("/stats", requireAdmin, async (req, res, next) => {
       totalTransactionVolume: txStats?.totalTransactionVolume || 0,
       newUsersToday,
       transactionsToday,
+      activeUsersToday,
+      failedTransactionsToday,
+      successfulTransactionsToday,
+      todaysDeposits: todaysDepositsAgg?.total || 0,
+      monthlyDeposits: monthlyDepositsAgg?.total || 0,
+      revenueVsFailed,
       recentUsers,
       recentTransactions,
     });
