@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 const Bills = () => {
   const { user, userData, fetchUserData } = useAuth();
   const [selectedType, setSelectedType] = useState(null);
-  const [form, setForm] = useState({ provider: "", meterNumber: "", amount: "", meterType: "prepaid" });
+  const [form, setForm] = useState({ provider: "", meterNumber: "", amount: "", meterType: "prepaid", phone: "" });
   const [success, setSuccess] = useState(false);
   const [successData, setSuccessData] = useState(null);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -23,6 +23,14 @@ const Bills = () => {
   const isCable = selectedType?.id === "cable";
 
   const handleChange = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
+
+  // Prefill from the account's saved phone once, without overriding anything
+  // the user has already typed — VTpass requires a phone for bill payments,
+  // but it may need to differ from the account's phone (e.g. a family
+  // member's meter), so it stays editable rather than locked to the profile.
+  useEffect(() => {
+    if (userData?.phone && !form.phone) setForm((p) => ({ ...p, phone: userData.phone }));
+  }, [userData]);
 
   // Cable bouquets have fixed VTpass-defined prices/codes — a blank
   // variationCode (the old behavior) is guaranteed to be rejected.
@@ -49,6 +57,7 @@ const Bills = () => {
     setError("");
     const amt = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount);
     if (!amt) return;
+    if (!form.phone || form.phone.length < 10) { setError("Enter a valid phone number."); return; }
     if (amt > balance) { setError("Insufficient balance. Please deposit more funds."); return; }
 
     setLoading(true);
@@ -61,6 +70,7 @@ const Bills = () => {
         amount: amt,
         meterType: form.meterType || "prepaid",
         variationCode: isCable ? selectedPlan?.variation_code : "",
+        phone: form.phone,
       });
       await fetchUserData(user.uid);
       setSuccessData(result);
@@ -77,7 +87,7 @@ const Bills = () => {
 
   const reset = () => {
     setSuccess(false); setSuccessData(null); setPaidAmount(0);
-    setSelectedType(null); setForm({ provider: "", meterNumber: "", amount: "", meterType: "prepaid" }); setError("");
+    setSelectedType(null); setForm({ provider: "", meterNumber: "", amount: "", meterType: "prepaid", phone: userData?.phone || "" }); setError("");
     setSelectedPlan(null); setCablePlans([]);
   };
 
@@ -203,6 +213,12 @@ const Bills = () => {
                       className="input-field text-base" placeholder="Enter your number" required />
                   </div>
 
+                  <div>
+                    <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Phone Number</label>
+                    <input type="tel" value={form.phone} onChange={handleChange("phone")}
+                      className="input-field text-base" placeholder="08012345678" maxLength={11} required />
+                  </div>
+
                   {isCable ? (
                     <div>
                       <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Select Bouquet</label>
@@ -242,7 +258,7 @@ const Bills = () => {
                     </div>
                   )}
 
-                  <button type="submit" disabled={loading || !form.provider || (isCable && !selectedPlan)}
+                  <button type="submit" disabled={loading || !form.provider || !form.phone || (isCable && !selectedPlan)}
                     className="btn-primary mt-2 flex items-center justify-center gap-2 py-4 text-base disabled:opacity-60">
                     {loading ? "Processing..." : `Pay ${displayAmount ? formatNaira(displayAmount) : "Bill"} from Wallet`}
                   </button>

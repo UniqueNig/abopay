@@ -145,6 +145,10 @@ router.post(
     body("billType").isIn(["electricity", "cable"]),
     body("provider").isString().trim().notEmpty(),
     body("amount").isFloat({ gt: 0 }),
+    // VTpass requires phone as a mandatory /pay parameter for bills — don't
+    // fall back to the user's profile phone, which may be blank (e.g. Google
+    // sign-in never collects one) and isn't necessarily tied to this meter/card.
+    body("phone").isString().trim().isLength({ min: 10, max: 11 }).withMessage("A valid phone number is required."),
     body("meterNumber").optional().isString().trim(),
     body("smartCardNumber").optional().isString().trim(),
     body("meterType").optional().isString().trim(),
@@ -153,9 +157,9 @@ router.post(
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { billType, provider, meterNumber, smartCardNumber, amount, meterType, variationCode } = req.body;
+      const { billType, provider, meterNumber, smartCardNumber, amount, meterType, variationCode, phone } = req.body;
 
-      const user = await requireBalance(req.uid, amount);
+      await requireBalance(req.uid, amount);
 
       let serviceID, billersCode, payloadExtra = {};
       if (billType === "electricity") {
@@ -177,7 +181,7 @@ router.post(
           serviceID,
           billersCode,
           amount,
-          phone: user.phone || "",
+          phone,
           quantity: 1,
           ...payloadExtra,
         },
