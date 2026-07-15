@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DashboardLayout from "../components/DashboardLayout";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
@@ -12,16 +12,43 @@ const Bills = () => {
   const [form, setForm] = useState({ provider: "", meterNumber: "", amount: "", meterType: "prepaid" });
   const [success, setSuccess] = useState(false);
   const [successData, setSuccessData] = useState(null);
+  const [paidAmount, setPaidAmount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [cablePlans, setCablePlans] = useState([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plansError, setPlansError] = useState("");
+  const [selectedPlan, setSelectedPlan] = useState(null);
   const balance = userData?.balance ?? 0;
+  const isCable = selectedType?.id === "cable";
 
   const handleChange = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
+
+  // Cable bouquets have fixed VTpass-defined prices/codes — a blank
+  // variationCode (the old behavior) is guaranteed to be rejected.
+  useEffect(() => {
+    if (!isCable || !form.provider) {
+      setCablePlans([]);
+      setSelectedPlan(null);
+      return;
+    }
+    setPlansLoading(true);
+    setPlansError("");
+    setSelectedPlan(null);
+    api
+      .get(`/vtu/cable-plans/${form.provider}`)
+      .then((res) => setCablePlans(res?.content?.varations || []))
+      .catch(() => setPlansError("Could not load bouquets. Try again."))
+      .finally(() => setPlansLoading(false));
+  }, [isCable, form.provider]);
+
+  const displayAmount = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount || 0);
 
   const handlePay = async (e) => {
     e.preventDefault();
     setError("");
-    const amt = parseFloat(form.amount);
+    const amt = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount);
+    if (!amt) return;
     if (amt > balance) { setError("Insufficient balance. Please deposit more funds."); return; }
 
     setLoading(true);
@@ -33,10 +60,11 @@ const Bills = () => {
         smartCardNumber: form.meterNumber,
         amount: amt,
         meterType: form.meterType || "prepaid",
-        variationCode: "",
+        variationCode: isCable ? selectedPlan?.variation_code : "",
       });
       await fetchUserData(user.uid);
       setSuccessData(result);
+      setPaidAmount(amt);
       setSuccess(true);
     } catch (err) {
       console.error("Bill pay error:", err);
@@ -48,8 +76,9 @@ const Bills = () => {
   };
 
   const reset = () => {
-    setSuccess(false); setSuccessData(null);
+    setSuccess(false); setSuccessData(null); setPaidAmount(0);
     setSelectedType(null); setForm({ provider: "", meterNumber: "", amount: "", meterType: "prepaid" }); setError("");
+    setSelectedPlan(null); setCablePlans([]);
   };
 
   return (
@@ -68,7 +97,7 @@ const Bills = () => {
             <div>
               <h2 className="font-syne font-bold text-white text-xl mb-2">Bill Paid!</h2>
               <p className="text-white/60 font-dm text-sm">
-                <span className="text-orange-400 font-bold">{formatNaira(parseFloat(form.amount))}</span> paid to {form.provider}
+                <span className="text-orange-400 font-bold">{formatNaira(paidAmount)}</span> paid to {form.provider}
               </p>
               {successData?.electricityToken && (
                 <div className="mt-3 bg-secondary/10 border border-secondary/20 rounded-xl px-4 py-3">
@@ -174,18 +203,48 @@ const Bills = () => {
                       className="input-field text-base" placeholder="Enter your number" required />
                   </div>
 
-                  <div>
-                    <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Amount (₦)</label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 font-syne font-bold text-base">₦</span>
-                      <input type="number" value={form.amount} onChange={handleChange("amount")}
-                        className="input-field pl-9 text-base" placeholder="1000" min="500" required />
+                  {isCable ? (
+                    <div>
+                      <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Select Bouquet</label>
+                      {!form.provider ? (
+                        <p className="text-white/40 font-dm text-sm">Select a provider first</p>
+                      ) : plansLoading ? (
+                        <p className="text-white/40 font-dm text-sm">Loading bouquets...</p>
+                      ) : plansError ? (
+                        <p className="text-red-400 font-dm text-sm">{plansError}</p>
+                      ) : cablePlans.length === 0 ? (
+                        <p className="text-white/40 font-dm text-sm">No bouquets available for this provider right now.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1">
+                          {cablePlans.map((plan) => (
+                            <button key={plan.variation_code} type="button"
+                              onClick={() => setSelectedPlan(plan)}
+                              className={`flex items-center justify-between px-4 py-3 rounded-xl border font-dm text-sm transition-all duration-200 ${
+                                selectedPlan?.variation_code === plan.variation_code
+                                  ? "bg-orange-400/15 border-orange-400/40 text-orange-400"
+                                  : "bg-white/5 border-white/15 text-white hover:bg-white/10 hover:border-white/25"
+                              }`}>
+                              <span>{plan.name}</span>
+                              <span className="font-syne font-bold">{formatNaira(parseFloat(plan.variation_amount))}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  ) : (
+                    <div>
+                      <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Amount (₦)</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 font-syne font-bold text-base">₦</span>
+                        <input type="number" value={form.amount} onChange={handleChange("amount")}
+                          className="input-field pl-9 text-base" placeholder="1000" min="500" required />
+                      </div>
+                    </div>
+                  )}
 
-                  <button type="submit" disabled={loading || !form.provider}
+                  <button type="submit" disabled={loading || !form.provider || (isCable && !selectedPlan)}
                     className="btn-primary mt-2 flex items-center justify-center gap-2 py-4 text-base disabled:opacity-60">
-                    {loading ? "Processing..." : `Pay ${form.amount ? formatNaira(parseFloat(form.amount)) : "Bill"} from Wallet`}
+                    {loading ? "Processing..." : `Pay ${displayAmount ? formatNaira(displayAmount) : "Bill"} from Wallet`}
                   </button>
 
                   <p className="text-white/30 font-dm text-xs text-center">

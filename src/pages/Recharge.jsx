@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DashboardLayout from "../components/DashboardLayout";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
@@ -16,14 +16,41 @@ const Recharge = () => {
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [dataPlans, setDataPlans] = useState([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plansError, setPlansError] = useState("");
+  const [selectedPlan, setSelectedPlan] = useState(null);
   const balance = userData?.balance ?? 0;
 
-  const finalAmount = amount === "custom" ? parseFloat(customAmount) : parseFloat(amount);
+  // Data bundles have fixed VTpass-defined prices, so the "amount" for a
+  // data purchase comes from whichever plan was picked, not free typing.
+  const finalAmount = type === "data"
+    ? parseFloat(selectedPlan?.variation_amount || 0)
+    : amount === "custom" ? parseFloat(customAmount) : parseFloat(amount);
+
+  // Real VTpass plan codes must be fetched per network — a guessed code like
+  // "mtn-1000" doesn't match anything VTpass actually offers.
+  useEffect(() => {
+    if (type !== "data" || !network) {
+      setDataPlans([]);
+      setSelectedPlan(null);
+      return;
+    }
+    setPlansLoading(true);
+    setPlansError("");
+    setSelectedPlan(null);
+    api
+      .get(`/vtu/data-plans/${network.id}`)
+      .then((res) => setDataPlans(res?.content?.varations || []))
+      .catch(() => setPlansError("Could not load data plans. Try again."))
+      .finally(() => setPlansLoading(false));
+  }, [type, network]);
 
   const handlePay = async (e) => {
     e.preventDefault();
     setError("");
     if (!network || !phone || !finalAmount) return;
+    if (type === "data" && !selectedPlan) return;
     if (finalAmount > balance) {
       setError("Insufficient balance. Please deposit more funds.");
       return;
@@ -35,7 +62,7 @@ const Recharge = () => {
 
       const payload = type === "airtime"
         ? { network: network.id, phone, amount: finalAmount }
-        : { network: network.id, phone, amount: finalAmount, variationCode: `${network.id}-${finalAmount}` };
+        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code };
 
       await api.post(path, payload);
       await fetchUserData(user.uid);
@@ -52,6 +79,7 @@ const Recharge = () => {
   const reset = () => {
     setSuccess(false); setNetwork(null); setPhone("");
     setAmount(""); setCustomAmount(""); setError("");
+    setSelectedPlan(null); setDataPlans([]);
   };
 
   return (
@@ -109,7 +137,8 @@ const Recharge = () => {
                 <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Type</label>
                 <div className="flex gap-2">
                   {["airtime", "data"].map((t) => (
-                    <button key={t} type="button" onClick={() => setType(t)}
+                    <button key={t} type="button"
+                      onClick={() => { setType(t); setAmount(""); setCustomAmount(""); setSelectedPlan(null); }}
                       className={`flex-1 py-3 rounded-xl font-dm text-sm font-semibold capitalize transition-all duration-200 border ${
                         type === t ? "bg-gold/15 border-gold/40 text-gold" : "bg-white/5 border-white/15 text-white/60 hover:text-white hover:border-white/25"
                       }`}>
@@ -143,29 +172,59 @@ const Recharge = () => {
                   className="input-field text-base" placeholder="08012345678" maxLength={11} required />
               </div>
 
-              {/* Amount presets */}
-              <div>
-                <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Amount (₦)</label>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {RECHARGE_AMOUNTS.map((a) => (
-                    <button key={a} type="button"
-                      onClick={() => { setAmount(String(a)); setCustomAmount(""); }}
-                      className={`py-3 rounded-xl font-dm text-sm font-semibold border transition-all duration-200 ${
-                        amount === String(a)
-                          ? "bg-secondary text-white border-secondary shadow-lg shadow-secondary/20"
-                          : "bg-white/5 border-white/15 text-white/75 hover:bg-white/10 hover:border-white/25 hover:text-white"
-                      }`}>
-                      ₦{a.toLocaleString()}
-                    </button>
-                  ))}
+              {/* Amount presets (airtime) / real VTpass plans (data) */}
+              {type === "airtime" ? (
+                <div>
+                  <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Amount (₦)</label>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {RECHARGE_AMOUNTS.map((a) => (
+                      <button key={a} type="button"
+                        onClick={() => { setAmount(String(a)); setCustomAmount(""); }}
+                        className={`py-3 rounded-xl font-dm text-sm font-semibold border transition-all duration-200 ${
+                          amount === String(a)
+                            ? "bg-secondary text-white border-secondary shadow-lg shadow-secondary/20"
+                            : "bg-white/5 border-white/15 text-white/75 hover:bg-white/10 hover:border-white/25 hover:text-white"
+                        }`}>
+                        ₦{a.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                  <input type="number" value={customAmount}
+                    onChange={(e) => { setCustomAmount(e.target.value); setAmount("custom"); }}
+                    className="input-field text-base" placeholder="Or enter custom amount" min="50" />
                 </div>
-                <input type="number" value={customAmount}
-                  onChange={(e) => { setCustomAmount(e.target.value); setAmount("custom"); }}
-                  className="input-field text-base" placeholder="Or enter custom amount" min="50" />
-              </div>
+              ) : (
+                <div>
+                  <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Select Data Plan</label>
+                  {!network ? (
+                    <p className="text-white/40 font-dm text-sm">Select a network first</p>
+                  ) : plansLoading ? (
+                    <p className="text-white/40 font-dm text-sm">Loading plans...</p>
+                  ) : plansError ? (
+                    <p className="text-red-400 font-dm text-sm">{plansError}</p>
+                  ) : dataPlans.length === 0 ? (
+                    <p className="text-white/40 font-dm text-sm">No plans available for this network right now.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1">
+                      {dataPlans.map((plan) => (
+                        <button key={plan.variation_code} type="button"
+                          onClick={() => setSelectedPlan(plan)}
+                          className={`flex items-center justify-between px-4 py-3 rounded-xl border font-dm text-sm transition-all duration-200 ${
+                            selectedPlan?.variation_code === plan.variation_code
+                              ? "bg-gold/15 border-gold/40 text-gold"
+                              : "bg-white/5 border-white/15 text-white hover:bg-white/10 hover:border-white/25"
+                          }`}>
+                          <span>{plan.name}</span>
+                          <span className="font-syne font-bold">{formatNaira(parseFloat(plan.variation_amount))}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button type="submit"
-                disabled={loading || !network || !phone || !finalAmount || finalAmount > balance}
+                disabled={loading || !network || !phone || !finalAmount || finalAmount > balance || (type === "data" && !selectedPlan)}
                 className="btn-primary flex items-center justify-center gap-2 py-4 text-base disabled:opacity-50 disabled:cursor-not-allowed">
                 {loading ? "Processing..." : `Pay ${finalAmount ? formatNaira(finalAmount) : ""} from Wallet`}
               </button>
