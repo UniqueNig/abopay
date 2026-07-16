@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   FiGrid, FiSend, FiFileText, FiSmartphone,
-  FiTrendingUp, FiLogOut, FiX, FiPlusCircle, FiList, FiShield,
+  FiTrendingUp, FiLogOut, FiX, FiPlusCircle, FiList, FiShield, FiSettings, FiUserCheck,
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import abopayLogo from "../assets/abopay-logo.png";
@@ -15,6 +15,8 @@ const navItems = [
   { to: "/bills", icon: <FiFileText size={17} />, label: "Pay Bills" },
   { to: "/recharge", icon: <FiSmartphone size={17} />, label: "Recharge" },
   { to: "/savings", icon: <FiTrendingUp size={17} />, label: "Savings" },
+  { to: "/kyc", icon: <FiUserCheck size={17} />, label: "Verify Identity" },
+  { to: "/settings", icon: <FiSettings size={17} />, label: "Settings" },
 ];
 
 const Sidebar = ({ mobileOpen, setMobileOpen }) => {

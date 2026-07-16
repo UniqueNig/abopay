@@ -14,6 +14,17 @@ import transfersRouter from "./routes/transfers.js";
 import walletTransfersRouter from "./routes/walletTransfers.js";
 import vtuRouter from "./routes/vtu.js";
 import adminRouter from "./routes/admin.js";
+import authRouter from "./routes/auth.js";
+import disputesRouter from "./routes/disputes.js";
+import accountDeletionRequestsRouter from "./routes/accountDeletionRequests.js";
+import kycRouter from "./routes/kyc.js";
+import adminAdminsRouter from "./routes/adminAdmins.js";
+import adminLoginLogsRouter from "./routes/adminLoginLogs.js";
+import adminVtuTransactionsRouter from "./routes/adminVtuTransactions.js";
+import adminDisputesRouter from "./routes/adminDisputes.js";
+import adminAccountDeletionsRouter from "./routes/adminAccountDeletions.js";
+import adminKycRouter from "./routes/adminKyc.js";
+import adminPinRequestsRouter from "./routes/adminPinRequests.js";
 
 const app = express();
 
@@ -43,11 +54,27 @@ app.use("/api/deposits", apiLimiter, depositsRouter);
 app.use("/api/transfers", apiLimiter, transfersRouter);
 app.use("/api/wallet-transfers", apiLimiter, walletTransfersRouter);
 app.use("/api/vtu", apiLimiter, vtuRouter);
+app.use("/api/auth", apiLimiter, authRouter);
+app.use("/api/disputes", apiLimiter, disputesRouter);
+app.use("/api/account-deletion-requests", apiLimiter, accountDeletionRequestsRouter);
+
+// Tighter limiter for file uploads specifically — larger request bodies,
+// more expensive to process, no reason to allow the same volume as
+// lightweight JSON endpoints.
+const uploadLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+app.use("/api/kyc", uploadLimiter, kycRouter);
 
 // Separate, tighter limiter — admin routes expose sensitive data and can
 // move money, so they don't need the same headroom as regular user traffic.
 const adminLimiter = rateLimit({ windowMs: 60_000, max: 60 });
 app.use("/api/admin", adminLimiter, adminRouter);
+app.use("/api/admin/admins", adminLimiter, adminAdminsRouter);
+app.use("/api/admin/login-logs", adminLimiter, adminLoginLogsRouter);
+app.use("/api/admin/vtu-transactions", adminLimiter, adminVtuTransactionsRouter);
+app.use("/api/admin/disputes", adminLimiter, adminDisputesRouter);
+app.use("/api/admin/account-deletions", adminLimiter, adminAccountDeletionsRouter);
+app.use("/api/admin/kyc", adminLimiter, adminKycRouter);
+app.use("/api/admin/pin-requests", adminLimiter, adminPinRequestsRouter);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

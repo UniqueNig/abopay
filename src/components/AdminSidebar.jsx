@@ -1,7 +1,9 @@
 import React from "react";
 import { NavLink, useNavigate, Link } from "react-router-dom";
 import {
-  FiGrid, FiUsers, FiList, FiLogOut, FiX, FiShield, FiArrowLeft,
+  FiGrid, FiUsers, FiList, FiLogOut, FiX, FiShield, FiArrowLeft, FiLogIn,
+  FiUserCheck, FiUserX, FiAlertTriangle, FiDollarSign, FiSettings, FiTag,
+  FiKey, FiTerminal, FiMail, FiCpu, FiMessageCircle, FiWifi,
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import abopayLogo from "../assets/abopay-logo.png";
@@ -9,7 +11,21 @@ import abopayLogo from "../assets/abopay-logo.png";
 const navItems = [
   { to: "/admin", icon: <FiGrid size={17} />, label: "Overview" },
   { to: "/admin/users", icon: <FiUsers size={17} />, label: "Users" },
+  { to: "/admin/admins", icon: <FiUserCheck size={17} />, label: "Admin Management" },
+  { to: "/admin/account-deletions", icon: <FiUserX size={17} />, label: "Account Deletions" },
+  { to: "/admin/kyc", icon: <FiShield size={17} />, label: "KYC Compliance" },
+  { to: "/admin/login-logs", icon: <FiLogIn size={17} />, label: "Login Logs" },
+  { to: "/admin/pin-requests", icon: <FiKey size={17} />, label: "PIN Management" },
   { to: "/admin/transactions", icon: <FiList size={17} />, label: "Transactions" },
+  { to: "/admin/vtu-transactions", icon: <FiWifi size={17} />, label: "VTU Transactions" },
+  { to: "/admin/disputes", icon: <FiAlertTriangle size={17} />, label: "Transfer Disputes" },
+  { to: "/admin/finance", icon: <FiDollarSign size={17} />, label: "Finance" },
+  { to: "/admin/marketing", icon: <FiTag size={17} />, label: "Marketing" },
+  { to: "/admin/settings", icon: <FiSettings size={17} />, label: "Settings" },
+  { to: "/admin/comms", icon: <FiMail size={17} />, label: "Email & SMS" },
+  { to: "/admin/live-chat", icon: <FiMessageCircle size={17} />, label: "Live Chat" },
+  { to: "/admin/system-logs", icon: <FiTerminal size={17} />, label: "Cron Jobs & Logs" },
+  { to: "/admin/assistant", icon: <FiCpu size={17} />, label: "Assistant" },
 ];
 
 const AdminSidebar = ({ mobileOpen, setMobileOpen }) => {
@@ -18,7 +34,7 @@ const AdminSidebar = ({ mobileOpen, setMobileOpen }) => {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/");
+    navigate("/admin/login");
   };
 
   const SidebarContent = () => (

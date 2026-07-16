@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
-import { FiX, FiShare2, FiDownload, FiArrowUpRight, FiArrowDownLeft } from "react-icons/fi";
+import { FiX, FiShare2, FiDownload, FiArrowUpRight, FiArrowDownLeft, FiFlag } from "react-icons/fi";
 import { formatNaira, formatDate, formatTime } from "../utils/helpers";
+import { api } from "../api";
 import abopayLogo from "../assets/abopay-logo.svg";
 
 // Fields already shown elsewhere in the receipt, or internal-only — hidden
@@ -25,6 +26,11 @@ const TransactionDetailModal = ({ transaction, onClose }) => {
   const receiptRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState("");
+  const [reporting, setReporting] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportSuccess, setReportSuccess] = useState(false);
 
   if (!transaction) return null;
   const tx = transaction;
@@ -60,6 +66,23 @@ const TransactionDetailModal = ({ transaction, onClose }) => {
       if (err.name !== "AbortError") setShareError("Could not generate receipt. Try again.");
     }
     setSharing(false);
+  };
+
+  const handleReport = async () => {
+    if (!reportReason.trim()) {
+      setReportError("Describe the problem first.");
+      return;
+    }
+    setReportSubmitting(true);
+    setReportError("");
+    try {
+      await api.post("/disputes", { transactionRef: tx.reference, reason: reportReason.trim() });
+      setReportSuccess(true);
+      setReporting(false);
+    } catch (err) {
+      setReportError(err.message || "Could not submit report. Try again.");
+    }
+    setReportSubmitting(false);
   };
 
   return (
@@ -124,6 +147,44 @@ const TransactionDetailModal = ({ transaction, onClose }) => {
             {navigator.share ? <FiShare2 size={15} /> : <FiDownload size={15} />}
             {sharing ? "Generating..." : navigator.share ? "Share Receipt" : "Download Receipt"}
           </button>
+
+          {reportSuccess ? (
+            <p className="text-secondary font-dm text-xs text-center mt-4">
+              Reported — our team will review this transaction.
+            </p>
+          ) : reporting ? (
+            <div className="mt-4">
+              <textarea
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                className="input-field min-h-[70px] resize-none text-sm"
+                placeholder="What went wrong with this transaction?"
+              />
+              {reportError && <p className="text-red-400 font-dm text-xs mt-2">{reportError}</p>}
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => { setReporting(false); setReportError(""); }}
+                  className="flex-1 font-dm text-xs text-white/50 hover:text-white border border-white/10 rounded-xl py-2.5"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReport}
+                  disabled={reportSubmitting}
+                  className="flex-1 font-dm text-xs font-medium text-red-400 border border-red-500/25 hover:bg-red-500/10 rounded-xl py-2.5 disabled:opacity-60"
+                >
+                  {reportSubmitting ? "Submitting..." : "Submit Report"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setReporting(true)}
+              className="w-full flex items-center justify-center gap-1.5 text-white/40 hover:text-red-400 font-dm text-xs mt-4"
+            >
+              <FiFlag size={12} /> Report a problem
+            </button>
+          )}
         </div>
       </div>
     </div>

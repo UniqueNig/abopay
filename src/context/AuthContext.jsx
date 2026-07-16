@@ -41,14 +41,24 @@ export const AuthProvider = ({ children }) => {
     return result;
   };
 
-  const login = (email, password) =>
-    signInWithEmailAndPassword(auth, email, password);
+  // Fire-and-forget: records this sign-in for the admin Login Logs page.
+  // Never blocks or fails the actual login on logging errors.
+  const recordLogin = () => {
+    api.post("/auth/log-login", {}).catch(() => {});
+  };
+
+  const login = async (email, password) => {
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    recordLogin();
+    return result;
+  };
 
   const loginWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     const result = await signInWithPopup(auth, provider);
     await ensureUserProfile(result.user.displayName || "", result.user.phoneNumber || "");
+    recordLogin();
     return result;
   };
 
