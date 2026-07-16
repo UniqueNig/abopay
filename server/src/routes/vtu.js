@@ -203,7 +203,7 @@ router.post(
           quantity: 1,
           ...payloadExtra,
         },
-        20000
+        30000
       );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
