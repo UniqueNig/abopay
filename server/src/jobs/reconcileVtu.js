@@ -3,6 +3,7 @@ import { Transaction } from "../models/Transaction.js";
 import { User } from "../models/User.js";
 import { creditWallet } from "../services/wallet.js";
 import { vtpassRequery } from "../services/vtpass.js";
+import { SystemLog } from "../models/SystemLog.js";
 
 const PENDING_STATUSES = ["pending", "initiated", "processing"];
 const VTU_PREFIXES = ["AIR-", "DATA-", "BILL-"];
@@ -59,12 +60,22 @@ export function startVtuReconciliation() {
       createdAt: { $lte: stale },
     }).limit(50);
 
+    let reconciled = 0;
     for (const txn of candidates) {
       try {
-        await reconcileOneVtuTransaction(txn);
+        const status = await reconcileOneVtuTransaction(txn);
+        if (status) reconciled++;
       } catch (err) {
         console.error(`VTU requery failed for ${txn.reference}:`, err.message);
+        await SystemLog.create({ level: "error", source: "reconcileVtu", message: `${txn.reference}: ${err.message}` }).catch(() => {});
       }
+    }
+    if (candidates.length > 0) {
+      await SystemLog.create({
+        level: "info",
+        source: "reconcileVtu",
+        message: `Checked ${candidates.length} pending VTU transaction(s), reconciled ${reconciled}.`,
+      }).catch(() => {});
     }
   });
 }

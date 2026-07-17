@@ -1,4 +1,5 @@
 import { resend, emailFrom } from "../config/resend.js";
+import { ApiError } from "../middleware/errorHandler.js";
 
 // fullName and admin-written rejection notes are user/admin-controlled text
 // embedded straight into HTML email bodies below — escape before interpolating.
@@ -46,6 +47,29 @@ export function sendKycReviewedEmail(to, fullName, status, note) {
          <p>Please log in to Abopay and resubmit your documents.</p>
          <p>— The Abopay Team</p>`
   );
+}
+
+// Unlike the transactional senders above, a broadcast genuinely needs to
+// reach every user — so a missing Resend config or a failure is a real
+// problem for the caller (the admin's "queue for all users" button), not
+// something to swallow silently. The free Resend tier caps at 100 sends/day;
+// sequential sending (not Promise.all) keeps this from hammering that limit
+// all at once, and a failure partway through still reports how many made it.
+export async function sendBroadcastEmail(recipients, subject, html) {
+  if (!resend) throw new ApiError(503, "No email provider is configured yet (set RESEND_API_KEY).");
+
+  let sent = 0;
+  const failures = [];
+  for (const to of recipients) {
+    if (!to) continue;
+    try {
+      await resend.emails.send({ from: emailFrom, to, subject, html });
+      sent++;
+    } catch (err) {
+      failures.push(to);
+    }
+  }
+  return { sent, failed: failures.length };
 }
 
 export function sendPinResetApprovedEmail(to, fullName) {

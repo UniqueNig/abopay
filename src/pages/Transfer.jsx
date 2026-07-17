@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DashboardLayout from "../components/DashboardLayout";
 import PinConfirmModal from "../components/PinConfirmModal";
 import { useAuth } from "../context/AuthContext";
@@ -21,8 +21,18 @@ const Transfer = () => {
   const [error, setError] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinError, setPinError] = useState("");
+  const [pricing, setPricing] = useState(null);
+  const [couponCode, setCouponCode] = useState("");
   const balance = userData?.balance ?? 0;
   const isBank = mode === "bank";
+
+  useEffect(() => {
+    api.get("/pricing").then((res) => setPricing(res.pricing)).catch(() => {});
+  }, []);
+
+  const amt = parseFloat(form.amount) || 0;
+  const fee = isBank && pricing ? pricing.transferFeeFlat + amt * (pricing.transferFeePercent / 100) : 0;
+  const total = amt + fee;
 
   const filteredBanks = BANKS.filter((b) =>
     b.name.toLowerCase().includes(bankSearch.toLowerCase())
@@ -33,7 +43,7 @@ const Transfer = () => {
   const handleModeChange = (next) => {
     setMode(next);
     setForm({ bank: "", bankCode: "", accountNumber: "", accountName: "", amount: "", narration: "" });
-    setBankSearch(""); setError("");
+    setBankSearch(""); setError(""); setCouponCode("");
   };
 
   const handleBankSelect = (bank) => {
@@ -94,6 +104,7 @@ const Transfer = () => {
             bankCode: form.bankCode,
             amount: parseFloat(form.amount),
             narration: form.narration || "Abopay Transfer",
+            couponCode: couponCode.trim() || undefined,
             pin,
           })
         : await api.post("/wallet-transfers", {
@@ -125,7 +136,7 @@ const Transfer = () => {
   const reset = () => {
     setStep(1);
     setForm({ bank: "", bankCode: "", accountNumber: "", accountName: "", amount: "", narration: "" });
-    setBankSearch(""); setError("");
+    setBankSearch(""); setError(""); setCouponCode("");
   };
 
   return (
@@ -246,6 +257,20 @@ const Transfer = () => {
                     className="input-field text-base" placeholder="What's this for?" maxLength={50} />
                 </div>
 
+                {isBank && (
+                  <div>
+                    <label className="text-white/80 font-dm text-sm font-medium mb-2 block">
+                      Coupon Code <span className="text-white/35 font-normal">(optional)</span>
+                    </label>
+                    <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value)}
+                      className="input-field text-base uppercase" placeholder="Have a code?" maxLength={20} />
+                  </div>
+                )}
+
+                {isBank && fee > 0 && (
+                  <p className="text-white/40 font-dm text-xs -mt-1">Fee: {formatNaira(fee)} · Total: {formatNaira(total)}</p>
+                )}
+
                 <button type="submit" disabled={(isBank && !form.bank) || !form.accountNumber || verifying}
                   className="btn-primary flex items-center justify-center gap-2 mt-2 py-4 text-base disabled:opacity-50">
                   <FiSend size={15} /> {verifying ? "Verifying account..." : "Continue"}
@@ -261,8 +286,9 @@ const Transfer = () => {
                     { label: "Account Name", val: form.accountName, highlight: true },
                     ...(isBank ? [{ label: "Destination Bank", val: form.bank }] : []),
                     { label: isBank ? "Account Number" : "Abopay Account Number", val: form.accountNumber },
-                    { label: "Amount", val: formatNaira(parseFloat(form.amount)) },
-                    { label: "Fee", val: isBank ? "₦0.00" : "Instant & Free" },
+                    { label: "Amount", val: formatNaira(amt) },
+                    { label: "Fee", val: isBank ? formatNaira(fee) : "Instant & Free" },
+                    ...(isBank ? [{ label: "Total", val: formatNaira(total), highlight: true }] : []),
                     { label: "Narration", val: form.narration || (isBank ? "Abopay Transfer" : "Wallet Transfer") },
                   ].map((r, i) => (
                     <div key={i} className={`flex items-center justify-between px-5 py-3.5 ${i % 2 === 0 ? "bg-white/3" : "bg-white/5"}`}>

@@ -49,6 +49,16 @@ export async function createTransferRecipient({ accountName, accountNumber, bank
   }
 }
 
+export async function getPaystackBalance() {
+  try {
+    const res = await client.get("/balance");
+    return res.data.data.map((b) => ({ currency: b.currency, balance: b.balance / 100 }));
+  } catch (err) {
+    console.error("Paystack balance error:", err.response?.data || err.message);
+    throw new ApiError(502, "Could not check Paystack balance.");
+  }
+}
+
 export async function initiateTransfer({ recipientCode, amount, reference, narration }) {
   try {
     const res = await client.post("/transfer", {

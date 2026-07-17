@@ -98,6 +98,22 @@ export async function vtpassMerchantVerify({ billersCode, serviceID, extra = {} 
   }
 }
 
+// GET, so api-key + public-key per the same rule as vtpassVariations above.
+export async function vtpassBalance() {
+  try {
+    const res = await axios.get(`${env.vtpassBaseUrl}/balance`, {
+      headers: { "api-key": env.vtpassApiKey, "public-key": env.vtpassPublicKey },
+      timeout: 15000,
+    });
+    const balance = res.data?.contents?.balance;
+    if (balance === undefined) throw new Error("Unexpected response shape from VTpass balance endpoint.");
+    return { balance: parseFloat(balance) };
+  } catch (err) {
+    console.error("VTpass balance error:", err.response?.data || err.message);
+    throw new ApiError(502, "Could not check VTpass balance.");
+  }
+}
+
 export async function vtpassRequery(requestId) {
   const res = await axios.post(
     `${env.vtpassBaseUrl}/requery`,

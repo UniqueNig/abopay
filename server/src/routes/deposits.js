@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { verifyTransaction } from "../services/paystack.js";
 import { creditWallet } from "../services/wallet.js";
+import { getSettings, assertNotMaintenance, assertServiceEnabled } from "../services/settings.js";
 import { User } from "../models/User.js";
 
 const router = Router();
@@ -18,6 +19,11 @@ router.post(
 
     try {
       const { reference } = req.body;
+
+      const settings = await getSettings();
+      assertNotMaintenance(settings);
+      assertServiceEnabled(settings, "deposits");
+
       const paystackData = await verifyTransaction(reference);
 
       if (!paystackData.status || paystackData.data?.status !== "success")

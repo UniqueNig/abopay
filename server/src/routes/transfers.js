@@ -5,6 +5,8 @@ import { ApiError } from "../middleware/errorHandler.js";
 import { createTransferRecipient, initiateTransfer, resolveAccountNumber } from "../services/paystack.js";
 import { debitWallet, creditWallet } from "../services/wallet.js";
 import { verifyTransactionPin } from "../services/pin.js";
+import { getSettings, assertNotMaintenance, assertServiceEnabled } from "../services/settings.js";
+import { previewCoupon, recordRedemption } from "../services/coupons.js";
 import { User } from "../models/User.js";
 import { PendingTransfer } from "../models/PendingTransfer.js";
 
@@ -41,6 +43,7 @@ router.post(
     body("bankCode").isString().trim().notEmpty(),
     body("amount").isFloat({ gt: 0 }),
     body("narration").optional().isString().trim().isLength({ max: 100 }),
+    body("couponCode").optional().isString().trim(),
     body("pin").isString().matches(/^\d{4}$/).withMessage("A valid 4-digit PIN is required."),
   ],
   async (req, res, next) => {
@@ -48,13 +51,26 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
 
     try {
-      const { accountNumber, bankCode, amount, narration, pin } = req.body;
+      const { accountNumber, bankCode, amount, narration, couponCode, pin } = req.body;
+
+      const settings = await getSettings();
+      assertNotMaintenance(settings);
+      assertServiceEnabled(settings, "transfers");
+      if (amount < settings.general.minTransfer) throw new ApiError(400, `Minimum transfer amount is ₦${settings.general.minTransfer}.`);
+      if (amount > settings.general.maxTransfer) throw new ApiError(400, `Maximum transfer amount is ₦${settings.general.maxTransfer}.`);
 
       const user = await User.findOne({ uid: req.uid });
       if (!user) throw new ApiError(404, "User not found.");
       if (user.suspended) throw new ApiError(403, "This account has been suspended.");
-      if (user.balance < amount) throw new ApiError(400, "Insufficient balance."); // fast-fail UX only — debitWallet below is the real, atomic guard
       await verifyTransactionPin(req.uid, pin);
+
+      const { transferFeeFlat, transferFeePercent } = settings.pricing;
+      const feeAmount = transferFeeFlat + amount * (transferFeePercent / 100);
+      const couponResult = await previewCoupon(couponCode, req.uid, feeAmount);
+      const discount = couponResult?.discount || 0;
+      const totalCharge = amount + feeAmount - discount;
+
+      if (totalCharge > user.balance) throw new ApiError(400, "Insufficient balance."); // fast-fail UX only — debitWallet below is the real, atomic guard
 
       // Resolve independently server-side — never trust a client-supplied name.
       const resolved = await resolveAccountNumber({ accountNumber, bankCode });
@@ -70,11 +86,17 @@ router.post(
       // request now fails here, before any real money moves — instead of
       // debiting last, which would let two concurrent requests both send a
       // real Paystack transfer while only one (or neither) gets charged.
-      await debitWallet(user.uid, amount, transferRef, `Transfer to ${accountName}`, "↗️", {
+      // Recipient still receives exactly `amount` — the fee is charged to the
+      // sender only, on top of what arrives at the destination bank.
+      await debitWallet(user.uid, totalCharge, transferRef, `Transfer to ${accountName}`, "↗️", {
         bank: bankCode,
         accountName,
         narration: narration || "Transfer",
         recipientCode: recipient.recipient_code,
+        amount,
+        fee: feeAmount,
+        couponCode: couponResult ? couponResult.coupon.code : null,
+        couponDiscount: discount,
       });
 
       try {
@@ -111,9 +133,11 @@ router.post(
           status: transferData.status,
         });
 
-        res.json({ success: true, status: transferData.status, reference: transferRef });
+        if (couponResult) await recordRedemption(couponResult.coupon._id, req.uid, transferRef);
+
+        res.json({ success: true, status: transferData.status, reference: transferRef, amountCharged: totalCharge });
       } catch (err) {
-        await creditWallet(user.uid, amount, transferRef + "_refund", `Refund: failed transfer to ${accountName}`, "↩️", {
+        await creditWallet(user.uid, totalCharge, transferRef + "_refund", `Refund: failed transfer to ${accountName}`, "↩️", {
           reason: "transfer_initiation_failed",
         });
         throw err;

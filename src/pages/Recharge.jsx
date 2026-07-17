@@ -24,13 +24,23 @@ const Recharge = () => {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinError, setPinError] = useState("");
+  const [pricing, setPricing] = useState(null);
+  const [couponCode, setCouponCode] = useState("");
   const balance = userData?.balance ?? 0;
+
+  useEffect(() => {
+    api.get("/pricing").then((res) => setPricing(res.pricing)).catch(() => {});
+  }, []);
 
   // Data bundles have fixed VTpass-defined prices, so the "amount" for a
   // data purchase comes from whichever plan was picked, not free typing.
   const finalAmount = type === "data"
     ? parseFloat(selectedPlan?.variation_amount || 0)
     : amount === "custom" ? parseFloat(customAmount) : parseFloat(amount);
+
+  const markupPercent = pricing ? (type === "airtime" ? pricing.airtimeDiscountPercent : pricing.dataDiscountPercent) : 0;
+  const fee = finalAmount * (markupPercent / 100);
+  const totalAmount = finalAmount + fee;
 
   // Real VTpass plan codes must be fetched per network — a guessed code like
   // "mtn-1000" doesn't match anything VTpass actually offers.
@@ -55,7 +65,7 @@ const Recharge = () => {
     setError("");
     if (!network || !phone || !finalAmount) return;
     if (type === "data" && !selectedPlan) return;
-    if (finalAmount > balance) {
+    if (totalAmount > balance) {
       setError("Insufficient balance. Please deposit more funds.");
       return;
     }
@@ -74,9 +84,10 @@ const Recharge = () => {
     try {
       const path = type === "airtime" ? "/vtu/airtime" : "/vtu/data";
 
+      const trimmedCoupon = couponCode.trim() || undefined;
       const payload = type === "airtime"
-        ? { network: network.id, phone, amount: finalAmount, pin }
-        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code, pin };
+        ? { network: network.id, phone, amount: finalAmount, couponCode: trimmedCoupon, pin }
+        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code, couponCode: trimmedCoupon, pin };
 
       await api.post(path, payload);
       await fetchUserData(user.uid);
@@ -94,7 +105,7 @@ const Recharge = () => {
   const reset = () => {
     setSuccess(false); setNetwork(null); setPhone("");
     setAmount(""); setCustomAmount(""); setError("");
-    setSelectedPlan(null); setDataPlans([]);
+    setSelectedPlan(null); setDataPlans([]); setCouponCode("");
   };
 
   return (
@@ -238,10 +249,22 @@ const Recharge = () => {
                 </div>
               )}
 
+              <div>
+                <label className="text-white/80 font-dm text-sm font-medium mb-2 block">
+                  Coupon Code <span className="text-white/35 font-normal">(optional)</span>
+                </label>
+                <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value)}
+                  className="input-field text-base uppercase" placeholder="Have a code?" maxLength={20} />
+              </div>
+
+              {fee > 0 && (
+                <p className="text-white/40 font-dm text-xs -mt-2">Fee: {formatNaira(fee)} · Total: {formatNaira(totalAmount)}</p>
+              )}
+
               <button type="submit"
-                disabled={loading || !network || !phone || !finalAmount || finalAmount > balance || (type === "data" && !selectedPlan)}
+                disabled={loading || !network || !phone || !finalAmount || totalAmount > balance || (type === "data" && !selectedPlan)}
                 className="btn-primary flex items-center justify-center gap-2 py-4 text-base disabled:opacity-50 disabled:cursor-not-allowed">
-                {loading ? "Processing..." : `Pay ${finalAmount ? formatNaira(finalAmount) : ""} from Wallet`}
+                {loading ? "Processing..." : `Pay ${finalAmount ? formatNaira(totalAmount) : ""} from Wallet`}
               </button>
 
               <p className="text-white/30 font-dm text-xs text-center">
@@ -254,7 +277,7 @@ const Recharge = () => {
         {showPinModal && (
           <PinConfirmModal
             title="Confirm Purchase"
-            subtitle={`Enter your PIN to pay ${formatNaira(finalAmount || 0)}`}
+            subtitle={`Enter your PIN to pay ${formatNaira(totalAmount || 0)}`}
             onConfirm={handlePinConfirm}
             onClose={() => { setShowPinModal(false); setPinError(""); }}
             submitting={loading}

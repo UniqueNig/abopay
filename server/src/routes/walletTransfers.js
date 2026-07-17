@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { transferBetweenWallets } from "../services/wallet.js";
 import { verifyTransactionPin } from "../services/pin.js";
+import { getSettings, assertNotMaintenance, assertServiceEnabled } from "../services/settings.js";
 import { User } from "../models/User.js";
 
 const router = Router();
@@ -44,6 +45,10 @@ router.post(
 
     try {
       const { accountNumber, amount, narration, pin } = req.body;
+
+      const settings = await getSettings();
+      assertNotMaintenance(settings);
+      assertServiceEnabled(settings, "walletTransfers");
 
       const sender = await User.findOne({ uid: req.uid });
       if (!sender) throw new ApiError(404, "User not found.");

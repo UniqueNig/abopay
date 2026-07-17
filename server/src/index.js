@@ -27,6 +27,13 @@ import adminKycRouter from "./routes/adminKyc.js";
 import adminPinRequestsRouter from "./routes/adminPinRequests.js";
 import pinRouter from "./routes/pin.js";
 import pinResetRequestsRouter from "./routes/pinResetRequests.js";
+import adminSettingsRouter from "./routes/adminSettings.js";
+import adminFinanceRouter from "./routes/adminFinance.js";
+import adminMarketingRouter from "./routes/adminMarketing.js";
+import adminCommsRouter from "./routes/adminComms.js";
+import adminSystemLogsRouter from "./routes/adminSystemLogs.js";
+import notificationsRouter from "./routes/notifications.js";
+import pricingRouter from "./routes/pricing.js";
 
 const app = express();
 
@@ -67,6 +74,8 @@ app.use("/api/auth", apiLimiter, authRouter);
 app.use("/api/disputes", apiLimiter, disputesRouter);
 app.use("/api/account-deletion-requests", apiLimiter, accountDeletionRequestsRouter);
 app.use("/api/pin-reset-requests", apiLimiter, pinResetRequestsRouter);
+app.use("/api/notifications", apiLimiter, notificationsRouter);
+app.use("/api/pricing", apiLimiter, pricingRouter);
 
 // Tighter limiter than regular API traffic — this is exactly the endpoint a
 // brute-force PIN guesser would hammer, on top of the 5-attempt account lock.
@@ -90,6 +99,14 @@ app.use("/api/admin/disputes", adminLimiter, adminDisputesRouter);
 app.use("/api/admin/account-deletions", adminLimiter, adminAccountDeletionsRouter);
 app.use("/api/admin/kyc", adminLimiter, adminKycRouter);
 app.use("/api/admin/pin-requests", adminLimiter, adminPinRequestsRouter);
+app.use("/api/admin/settings", adminLimiter, adminSettingsRouter);
+// adminFinanceRouter and adminMarketingRouter define their own top-level
+// sub-paths (/finance, /api-wallet, /expenses, /coupons, /notifications) —
+// mounted at the same /api/admin base as adminRouter, not nested under it.
+app.use("/api/admin", adminLimiter, adminFinanceRouter);
+app.use("/api/admin", adminLimiter, adminMarketingRouter);
+app.use("/api/admin/comms", adminLimiter, adminCommsRouter);
+app.use("/api/admin/system-logs", adminLimiter, adminSystemLogsRouter);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

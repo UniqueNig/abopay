@@ -27,9 +27,15 @@ const Bills = () => {
   const [elecVerify, setElecVerify] = useState(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinError, setPinError] = useState("");
+  const [pricing, setPricing] = useState(null);
+  const [couponCode, setCouponCode] = useState("");
   const balance = userData?.balance ?? 0;
   const isCable = selectedType?.id === "cable";
   const isElectricity = selectedType?.id === "electricity";
+
+  useEffect(() => {
+    api.get("/pricing").then((res) => setPricing(res.pricing)).catch(() => {});
+  }, []);
 
   const handleChange = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
 
@@ -98,6 +104,8 @@ const Bills = () => {
 
   const displayAmount = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount || 0);
   const verifiedAccountName = isCable ? cableVerify?.customerName : isElectricity ? elecVerify?.customerName : null;
+  const fee = pricing?.billFeeFlat || 0;
+  const totalAmount = displayAmount + fee;
 
   const handlePayClick = (e) => {
     e.preventDefault();
@@ -105,7 +113,7 @@ const Bills = () => {
     const amt = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount);
     if (!amt) return;
     if (!form.phone || form.phone.length < 10) { setError("Enter a valid phone number."); return; }
-    if (amt > balance) { setError("Insufficient balance. Please deposit more funds."); return; }
+    if (amt + fee > balance) { setError("Insufficient balance. Please deposit more funds."); return; }
 
     if (!userData?.hasPin) {
       navigate("/set-pin", { state: { returnTo: "/bills" } });
@@ -130,11 +138,12 @@ const Bills = () => {
         variationCode: isCable ? selectedPlan?.variation_code : "",
         phone: form.phone,
         accountName: verifiedAccountName || undefined,
+        couponCode: couponCode.trim() || undefined,
         pin,
       });
       await fetchUserData(user.uid);
       setSuccessData(result);
-      setPaidAmount(amt);
+      setPaidAmount(result.amountCharged ?? amt);
       setShowPinModal(false);
       setSuccess(true);
     } catch (err) {
@@ -150,7 +159,7 @@ const Bills = () => {
     setSuccess(false); setSuccessData(null); setPaidAmount(0);
     setSelectedType(null); setForm({ provider: "", meterNumber: "", amount: "", meterType: "prepaid", phone: userData?.phone || "" }); setError("");
     setSelectedPlan(null); setCablePlans([]);
-    setCableVerify(null); setElecVerify(null); setVerifyError("");
+    setCableVerify(null); setElecVerify(null); setVerifyError(""); setCouponCode("");
   };
 
   return (
@@ -345,9 +354,21 @@ const Bills = () => {
                     </div>
                   )}
 
+                  <div>
+                    <label className="text-white/80 font-dm text-sm font-medium mb-2 block">
+                      Coupon Code <span className="text-white/35 font-normal">(optional)</span>
+                    </label>
+                    <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value)}
+                      className="input-field text-base uppercase" placeholder="Have a code?" maxLength={20} />
+                  </div>
+
+                  {fee > 0 && (
+                    <p className="text-white/40 font-dm text-xs -mt-1">Fee: {formatNaira(fee)} · Total: {formatNaira(totalAmount)}</p>
+                  )}
+
                   <button type="submit" disabled={loading || !form.provider || !form.phone || (isCable && (!selectedPlan || !cableVerify?.customerName)) || (isElectricity && !elecVerify?.customerName)}
                     className="btn-primary mt-2 flex items-center justify-center gap-2 py-4 text-base disabled:opacity-60">
-                    {loading ? "Processing..." : `Pay ${displayAmount ? formatNaira(displayAmount) : "Bill"} from Wallet`}
+                    {loading ? "Processing..." : `Pay ${displayAmount ? formatNaira(totalAmount) : "Bill"} from Wallet`}
                   </button>
 
                   <p className="text-white/30 font-dm text-xs text-center">
@@ -362,7 +383,7 @@ const Bills = () => {
         {showPinModal && (
           <PinConfirmModal
             title="Confirm Payment"
-            subtitle={`Enter your PIN to pay ${formatNaira(displayAmount || 0)}`}
+            subtitle={`Enter your PIN to pay ${formatNaira(totalAmount || 0)}`}
             onConfirm={handlePinConfirm}
             onClose={() => { setShowPinModal(false); setPinError(""); }}
             submitting={loading}

@@ -5,23 +5,28 @@ import { ApiError } from "../middleware/errorHandler.js";
 import { vtpassPay, vtpassVariations, vtpassMerchantVerify, lookupService } from "../services/vtpass.js";
 import { debitWallet, creditWallet } from "../services/wallet.js";
 import { verifyTransactionPin } from "../services/pin.js";
+import { getSettings, assertNotMaintenance, assertServiceEnabled } from "../services/settings.js";
+import { previewCoupon, recordRedemption } from "../services/coupons.js";
 import { User } from "../models/User.js";
 import { Transaction } from "../models/Transaction.js";
 
 const router = Router();
 
 const PIN_RULE = body("pin").isString().matches(/^\d{4}$/).withMessage("A valid 4-digit PIN is required.");
+const COUPON_RULE = body("couponCode").optional().isString().trim();
 
 // The balance check here is a fast-fail UX nicety only — it runs outside any
 // transaction, so it can't be trusted against two concurrent requests. The
 // real, atomic guard is debitWallet, which callers below now run BEFORE the
 // VTpass purchase call (refunding if that call then fails) rather than
 // after — see the comment at each call site for why that order matters.
-async function requireBalanceAndPin(uid, amount, pin) {
+// `chargeAmount` is the fee/markup-inclusive total actually charged, not the
+// VTpass face value — callers compute that first from settings + coupon.
+async function requireBalanceAndPin(uid, chargeAmount, pin) {
   const user = await User.findOne({ uid });
   if (!user) throw new ApiError(404, "User not found.");
   if (user.suspended) throw new ApiError(403, "This account has been suspended.");
-  if (user.balance < amount) throw new ApiError(400, "Insufficient balance.");
+  if (user.balance < chargeAmount) throw new ApiError(400, "Insufficient balance.");
   await verifyTransactionPin(uid, pin);
   return user;
 }
@@ -117,23 +122,39 @@ router.post(
     body("network").isString().trim().notEmpty(),
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("amount").isFloat({ gt: 0 }),
+    COUPON_RULE,
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, amount, pin } = req.body;
+      const { network, phone, amount, couponCode, pin } = req.body;
       const serviceID = lookupService("airtime", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
-      await requireBalanceAndPin(req.uid, amount, pin);
+      const settings = await getSettings();
+      assertNotMaintenance(settings);
+      assertServiceEnabled(settings, "airtime");
+
+      const markup = amount * (settings.pricing.airtimeDiscountPercent / 100);
+      const couponResult = await previewCoupon(couponCode, req.uid, markup);
+      const discount = couponResult?.discount || 0;
+      const chargeAmount = amount + markup - discount;
+
+      await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
       const requestId = Date.now().toString();
       const ref = "AIR-" + requestId;
       const title = `${network.toUpperCase()} Airtime – ${phone}`;
 
-      const vtpassRes = await debitThenPurchase(req.uid, amount, ref, title, "📱", { network, phone }, () =>
-        vtpassPay({ request_id: requestId, serviceID, amount, phone, billersCode: phone, quantity: 1 })
+      const vtpassRes = await debitThenPurchase(
+        req.uid,
+        chargeAmount,
+        ref,
+        title,
+        "📱",
+        { network, phone, amount, fee: markup, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount },
+        () => vtpassPay({ request_id: requestId, serviceID, amount, phone, billersCode: phone, quantity: 1 })
       );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
@@ -142,7 +163,9 @@ router.post(
         { $set: { "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId, "meta.deliveryStatus": txStatus } }
       );
 
-      res.json({ success: true, status: txStatus, requestId, reference: ref });
+      if (couponResult) await recordRedemption(couponResult.coupon._id, req.uid, ref);
+
+      res.json({ success: true, status: txStatus, requestId, reference: ref, amountCharged: chargeAmount });
     } catch (err) {
       next(err);
     }
@@ -157,23 +180,39 @@ router.post(
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("variationCode").isString().trim().notEmpty(),
     body("amount").isFloat({ gt: 0 }),
+    COUPON_RULE,
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, variationCode, amount, pin } = req.body;
+      const { network, phone, variationCode, amount, couponCode, pin } = req.body;
       const serviceID = lookupService("data", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
-      await requireBalanceAndPin(req.uid, amount, pin);
+      const settings = await getSettings();
+      assertNotMaintenance(settings);
+      assertServiceEnabled(settings, "data");
+
+      const markup = amount * (settings.pricing.dataDiscountPercent / 100);
+      const couponResult = await previewCoupon(couponCode, req.uid, markup);
+      const discount = couponResult?.discount || 0;
+      const chargeAmount = amount + markup - discount;
+
+      await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
       const requestId = Date.now().toString();
       const ref = "DATA-" + requestId;
       const title = `${network.toUpperCase()} Data – ${phone}`;
 
-      const vtpassRes = await debitThenPurchase(req.uid, amount, ref, title, "📶", { network, phone, variationCode }, () =>
-        vtpassPay({ request_id: requestId, serviceID, billersCode: phone, variation_code: variationCode, amount, phone, quantity: 1 })
+      const vtpassRes = await debitThenPurchase(
+        req.uid,
+        chargeAmount,
+        ref,
+        title,
+        "📶",
+        { network, phone, variationCode, amount, fee: markup, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount },
+        () => vtpassPay({ request_id: requestId, serviceID, billersCode: phone, variation_code: variationCode, amount, phone, quantity: 1 })
       );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
@@ -182,7 +221,9 @@ router.post(
         { $set: { "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId, "meta.deliveryStatus": txStatus } }
       );
 
-      res.json({ success: true, status: txStatus, requestId, reference: ref });
+      if (couponResult) await recordRedemption(couponResult.coupon._id, req.uid, ref);
+
+      res.json({ success: true, status: txStatus, requestId, reference: ref, amountCharged: chargeAmount });
     } catch (err) {
       next(err);
     }
@@ -209,14 +250,24 @@ router.post(
     // fund routing (billersCode is what VTpass actually charges against), so
     // trusting the client here doesn't create a money-movement risk.
     body("accountName").optional().isString().trim(),
+    COUPON_RULE,
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { billType, provider, meterNumber, smartCardNumber, amount, meterType, variationCode, phone, accountName, pin } = req.body;
+      const { billType, provider, meterNumber, smartCardNumber, amount, meterType, variationCode, phone, accountName, couponCode, pin } = req.body;
 
-      await requireBalanceAndPin(req.uid, amount, pin);
+      const settings = await getSettings();
+      assertNotMaintenance(settings);
+      assertServiceEnabled(settings, "bills");
+
+      const fee = settings.pricing.billFeeFlat;
+      const couponResult = await previewCoupon(couponCode, req.uid, fee);
+      const discount = couponResult?.discount || 0;
+      const chargeAmount = amount + fee - discount;
+
+      await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
       let serviceID, billersCode, payloadExtra = {};
       if (billType === "electricity") {
@@ -237,11 +288,14 @@ router.post(
 
       const vtpassRes = await debitThenPurchase(
         req.uid,
-        amount,
+        chargeAmount,
         ref,
         `${provider} ${billType}`,
         category,
-        { provider, billType, billersCode, accountName: accountName || null },
+        {
+          provider, billType, billersCode, accountName: accountName || null,
+          amount, fee, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount,
+        },
         () =>
           vtpassPay(
             { request_id: requestId, serviceID, billersCode, amount, phone, quantity: 1, ...payloadExtra },
@@ -262,7 +316,9 @@ router.post(
         }
       );
 
-      res.json({ success: true, status: txStatus, requestId, reference: ref, electricityToken });
+      if (couponResult) await recordRedemption(couponResult.coupon._id, req.uid, ref);
+
+      res.json({ success: true, status: txStatus, requestId, reference: ref, electricityToken, amountCharged: chargeAmount });
     } catch (err) {
       next(err);
     }

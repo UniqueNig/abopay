@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { creditWallet } from "../services/wallet.js";
 import { User } from "../models/User.js";
 import { PendingTransfer } from "../models/PendingTransfer.js";
+import { SystemLog } from "../models/SystemLog.js";
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.post("/paystack", express.raw({ type: "application/json" }), async (req, 
   const signature = req.headers["x-paystack-signature"];
   if (!isValidSignature(req.body, signature)) {
     console.warn("Invalid Paystack webhook signature");
+    SystemLog.create({ level: "warn", source: "paystackWebhook", message: "Rejected a webhook call with an invalid signature." }).catch(() => {});
     return res.status(401).send("Unauthorized");
   }
 
@@ -68,6 +70,7 @@ router.post("/paystack", express.raw({ type: "application/json" }), async (req, 
     }
   } catch (err) {
     console.error("Webhook processing error:", err);
+    SystemLog.create({ level: "error", source: "paystackWebhook", message: err.message }).catch(() => {});
     // Still ack with 200 below — Paystack retries on non-2xx, and the write is
     // already idempotent by reference, so a retry storm from a transient error
     // (e.g. Mongo blip) is more likely to help than hurt here.
