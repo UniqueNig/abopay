@@ -30,6 +30,13 @@ import pinResetRequestsRouter from "./routes/pinResetRequests.js";
 
 const app = express();
 
+// Render (and most PaaS hosts) sit the app behind a reverse proxy — without
+// this, req.ip resolves to the proxy's address for every request, which
+// collapses express-rate-limit's per-IP buckets below into one shared bucket
+// across all users instead of one per client. `1` trusts exactly one hop
+// (the platform's proxy), not an arbitrary chain of client-supplied headers.
+app.set("trust proxy", 1);
+
 app.use(helmet());
 app.use(
   cors({

@@ -18,6 +18,16 @@ export const VTPASS_SERVICE = {
   cable: { DSTV: "dstv", GOtv: "gotv", StarTimes: "startimes" },
 };
 
+// Plain-object property access on a request-controlled key (e.g.
+// VTPASS_SERVICE.electricity[req.params.provider]) resolves inherited
+// properties like "__proto__" or "constructor" instead of returning
+// undefined for an unrecognized provider — this only ever returns an actual
+// own value from the lookup table.
+export function lookupService(category, key) {
+  const table = VTPASS_SERVICE[category];
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
 // Per VTpass's actual docs (vtpass.com/documentation/authentication/): POST
 // requests authenticate with api-key + secret-key headers — no Basic Auth,
 // no public-key (that pair is only for GET requests). The previous version of

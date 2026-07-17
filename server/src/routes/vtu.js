@@ -2,15 +2,21 @@ import { Router } from "express";
 import { body, validationResult } from "express-validator";
 import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
-import { VTPASS_SERVICE, vtpassPay, vtpassVariations, vtpassMerchantVerify } from "../services/vtpass.js";
-import { debitWallet } from "../services/wallet.js";
+import { vtpassPay, vtpassVariations, vtpassMerchantVerify, lookupService } from "../services/vtpass.js";
+import { debitWallet, creditWallet } from "../services/wallet.js";
 import { verifyTransactionPin } from "../services/pin.js";
 import { User } from "../models/User.js";
+import { Transaction } from "../models/Transaction.js";
 
 const router = Router();
 
 const PIN_RULE = body("pin").isString().matches(/^\d{4}$/).withMessage("A valid 4-digit PIN is required.");
 
+// The balance check here is a fast-fail UX nicety only — it runs outside any
+// transaction, so it can't be trusted against two concurrent requests. The
+// real, atomic guard is debitWallet, which callers below now run BEFORE the
+// VTpass purchase call (refunding if that call then fails) rather than
+// after — see the comment at each call site for why that order matters.
 async function requireBalanceAndPin(uid, amount, pin) {
   const user = await User.findOne({ uid });
   if (!user) throw new ApiError(404, "User not found.");
@@ -18,6 +24,22 @@ async function requireBalanceAndPin(uid, amount, pin) {
   if (user.balance < amount) throw new ApiError(400, "Insufficient balance.");
   await verifyTransactionPin(uid, pin);
   return user;
+}
+
+// Debits atomically first (closing the double-spend race a post-purchase
+// debit would leave open — see requireBalanceAndPin above), then attempts
+// the VTpass purchase. On failure, refunds the debit and rethrows so the
+// route's existing catch/next(err) handling is unchanged.
+async function debitThenPurchase(uid, amount, ref, title, category, meta, purchase) {
+  await debitWallet(uid, amount, ref, title, category, meta);
+  try {
+    return await purchase();
+  } catch (err) {
+    await creditWallet(uid, amount, ref + "_refund", `Refund: failed ${title}`, "↩️", {
+      reason: "vtu_purchase_failed",
+    });
+    throw err;
+  }
 }
 
 function checkValidation(req, res) {
@@ -33,7 +55,7 @@ function checkValidation(req, res) {
 // pick a data bundle, rather than guessing a variationCode like "mtn-1000".
 router.get("/data-plans/:network", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = VTPASS_SERVICE.data[req.params.network.toLowerCase()];
+    const serviceID = lookupService("data", req.params.network.toLowerCase());
     if (!serviceID) throw new ApiError(400, `Unknown network: ${req.params.network}`);
     res.json(await vtpassVariations(serviceID));
   } catch (err) {
@@ -45,7 +67,7 @@ router.get("/data-plans/:network", requireAuth, async (req, res, next) => {
 // which VTpass will reject the same way it rejected the guessed data codes.
 router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = VTPASS_SERVICE.cable[req.params.provider];
+    const serviceID = lookupService("cable", req.params.provider);
     if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
     res.json(await vtpassVariations(serviceID));
   } catch (err) {
@@ -58,7 +80,7 @@ router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
 // user confirms — same trust pattern as the bank-transfer name resolution.
 router.get("/verify-cable/:provider/:smartCardNumber", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = VTPASS_SERVICE.cable[req.params.provider];
+    const serviceID = lookupService("cable", req.params.provider);
     if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
     const content = await vtpassMerchantVerify({ billersCode: req.params.smartCardNumber, serviceID });
     res.json({
@@ -75,7 +97,7 @@ router.get("/verify-cable/:provider/:smartCardNumber", requireAuth, async (req, 
 // (prepaid/postpaid) that cable doesn't.
 router.get("/verify-electricity/:provider/:meterNumber", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = VTPASS_SERVICE.electricity[req.params.provider];
+    const serviceID = lookupService("electricity", req.params.provider);
     if (!serviceID) throw new ApiError(400, `Unknown electricity provider: ${req.params.provider}`);
     const type = req.query.type === "postpaid" ? "postpaid" : "prepaid";
     const content = await vtpassMerchantVerify({ billersCode: req.params.meterNumber, serviceID, extra: { type } });
@@ -101,29 +123,24 @@ router.post(
     if (!checkValidation(req, res)) return;
     try {
       const { network, phone, amount, pin } = req.body;
-      const serviceID = VTPASS_SERVICE.airtime[network.toLowerCase()];
+      const serviceID = lookupService("airtime", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
       await requireBalanceAndPin(req.uid, amount, pin);
 
       const requestId = Date.now().toString();
-      const vtpassRes = await vtpassPay({
-        request_id: requestId,
-        serviceID,
-        amount,
-        phone,
-        billersCode: phone,
-        quantity: 1,
-      });
+      const ref = "AIR-" + requestId;
+      const title = `${network.toUpperCase()} Airtime – ${phone}`;
+
+      const vtpassRes = await debitThenPurchase(req.uid, amount, ref, title, "📱", { network, phone }, () =>
+        vtpassPay({ request_id: requestId, serviceID, amount, phone, billersCode: phone, quantity: 1 })
+      );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
-      const ref = "AIR-" + requestId;
-      await debitWallet(req.uid, amount, ref, `${network.toUpperCase()} Airtime – ${phone}`, "📱", {
-        network,
-        phone,
-        vtpassTxId: vtpassRes?.content?.transactions?.transactionId,
-        deliveryStatus: txStatus,
-      });
+      await Transaction.updateOne(
+        { reference: ref },
+        { $set: { "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId, "meta.deliveryStatus": txStatus } }
+      );
 
       res.json({ success: true, status: txStatus, requestId, reference: ref });
     } catch (err) {
@@ -146,31 +163,24 @@ router.post(
     if (!checkValidation(req, res)) return;
     try {
       const { network, phone, variationCode, amount, pin } = req.body;
-      const serviceID = VTPASS_SERVICE.data[network.toLowerCase()];
+      const serviceID = lookupService("data", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
       await requireBalanceAndPin(req.uid, amount, pin);
 
       const requestId = Date.now().toString();
-      const vtpassRes = await vtpassPay({
-        request_id: requestId,
-        serviceID,
-        billersCode: phone,
-        variation_code: variationCode,
-        amount,
-        phone,
-        quantity: 1,
-      });
+      const ref = "DATA-" + requestId;
+      const title = `${network.toUpperCase()} Data – ${phone}`;
+
+      const vtpassRes = await debitThenPurchase(req.uid, amount, ref, title, "📶", { network, phone, variationCode }, () =>
+        vtpassPay({ request_id: requestId, serviceID, billersCode: phone, variation_code: variationCode, amount, phone, quantity: 1 })
+      );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
-      const ref = "DATA-" + requestId;
-      await debitWallet(req.uid, amount, ref, `${network.toUpperCase()} Data – ${phone}`, "📶", {
-        network,
-        phone,
-        variationCode,
-        vtpassTxId: vtpassRes?.content?.transactions?.transactionId,
-        deliveryStatus: txStatus,
-      });
+      await Transaction.updateOne(
+        { reference: ref },
+        { $set: { "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId, "meta.deliveryStatus": txStatus } }
+      );
 
       res.json({ success: true, status: txStatus, requestId, reference: ref });
     } catch (err) {
@@ -210,45 +220,47 @@ router.post(
 
       let serviceID, billersCode, payloadExtra = {};
       if (billType === "electricity") {
-        serviceID = VTPASS_SERVICE.electricity[provider];
+        serviceID = lookupService("electricity", provider);
         if (!serviceID) throw new ApiError(400, `Unknown electricity provider: ${provider}`);
         billersCode = meterNumber;
         payloadExtra = { variation_code: meterType || "prepaid" };
       } else {
-        serviceID = VTPASS_SERVICE.cable[provider];
+        serviceID = lookupService("cable", provider);
         if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${provider}`);
         billersCode = smartCardNumber || meterNumber;
         payloadExtra = { variation_code: variationCode || "" };
       }
 
       const requestId = Date.now().toString();
-      const vtpassRes = await vtpassPay(
-        {
-          request_id: requestId,
-          serviceID,
-          billersCode,
-          amount,
-          phone,
-          quantity: 1,
-          ...payloadExtra,
-        },
-        30000
+      const category = billType === "electricity" ? "⚡" : "📺";
+      const ref = "BILL-" + requestId;
+
+      const vtpassRes = await debitThenPurchase(
+        req.uid,
+        amount,
+        ref,
+        `${provider} ${billType}`,
+        category,
+        { provider, billType, billersCode, accountName: accountName || null },
+        () =>
+          vtpassPay(
+            { request_id: requestId, serviceID, billersCode, amount, phone, quantity: 1, ...payloadExtra },
+            30000
+          )
       );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
       const electricityToken = vtpassRes?.purchased_code || null;
-      const category = billType === "electricity" ? "⚡" : "📺";
-      const ref = "BILL-" + requestId;
-
-      await debitWallet(req.uid, amount, ref, `${provider} ${billType}`, category, {
-        provider,
-        billType,
-        billersCode,
-        accountName: accountName || null,
-        vtpassTxId: vtpassRes?.content?.transactions?.transactionId,
-        deliveryStatus: txStatus,
-        electricityToken,
-      });
+      await Transaction.updateOne(
+        { reference: ref },
+        {
+          $set: {
+            "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId,
+            "meta.deliveryStatus": txStatus,
+            "meta.electricityToken": electricityToken,
+          },
+        }
+      );
 
       res.json({ success: true, status: txStatus, requestId, reference: ref, electricityToken });
     } catch (err) {

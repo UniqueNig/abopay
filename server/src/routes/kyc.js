@@ -14,7 +14,11 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB per file
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) return cb(new ApiError(400, "Only image files are accepted."));
+    // SVGs match "image/" but can embed scripts — ID photos and selfies are
+    // always raster images, so there's no legitimate reason to accept one.
+    if (!file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
+      return cb(new ApiError(400, "Only image files are accepted."));
+    }
     cb(null, true);
   },
 });

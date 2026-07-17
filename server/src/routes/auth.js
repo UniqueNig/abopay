@@ -14,6 +14,7 @@ router.post("/log-login", requireAuth, async (req, res, next) => {
       uid: req.uid,
       email: req.email || "",
       userAgent: req.headers["user-agent"] || "",
+      ip: req.ip || "",
     });
     res.json({ success: true });
   } catch (err) {
