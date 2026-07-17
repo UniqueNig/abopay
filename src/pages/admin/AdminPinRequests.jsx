@@ -57,13 +57,6 @@ const AdminPinRequests = () => {
           ))}
         </div>
 
-        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-4 py-3 mb-6">
-          <p className="text-yellow-400 font-dm text-xs">
-            There's no transaction-PIN feature in the app yet — this queue is ready for when it ships,
-            but it'll stay empty until then. See ADMIN_SETUP.md.
-          </p>
-        </div>
-
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
             <FiAlertCircle className="text-red-400 mt-0.5 shrink-0" size={16} />
