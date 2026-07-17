@@ -25,11 +25,28 @@ const Recharge = () => {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinError, setPinError] = useState("");
   const [pricing, setPricing] = useState(null);
+  const [extraNetworks, setExtraNetworks] = useState([]);
   const balance = userData?.balance ?? 0;
 
   useEffect(() => {
     api.get("/pricing").then((res) => setPricing(res.pricing)).catch(() => {});
   }, []);
+
+  // Admin-added networks (e.g. a data-only ISP like Smile) beyond the
+  // hardcoded 4 — fetched per type, since a data-only network shouldn't
+  // show up under Airtime.
+  useEffect(() => {
+    api.get(`/networks/${type}`).then((res) => setExtraNetworks(res.networks || [])).catch(() => setExtraNetworks([]));
+  }, [type]);
+
+  const networks = [...RECHARGE_NETWORKS, ...extraNetworks];
+
+  // Switching type can leave a data-only network selected while looking at
+  // Airtime (or vice versa) — clear it rather than show a stale selection
+  // for a network that isn't actually offered under the new type.
+  useEffect(() => {
+    if (network && !networks.some((n) => n.id === network.id)) setNetwork(null);
+  }, [type, extraNetworks]);
 
   // Data bundles have fixed VTpass-defined prices, so the "amount" for a
   // data purchase comes from whichever plan was picked — and the plans
@@ -91,7 +108,7 @@ const Recharge = () => {
 
       const payload = type === "airtime"
         ? { network: network.id, phone, amount: finalAmount, pin }
-        : { network: network.id, phone, variationCode: selectedPlan.variation_code, pin };
+        : { network: network.id, phone, variationCode: selectedPlan.variation_code, serviceID: selectedPlan.serviceID, pin };
 
       await api.post(path, payload);
       await fetchUserData(user.uid);
@@ -182,7 +199,7 @@ const Recharge = () => {
               <div>
                 <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Select Network</label>
                 <div className="grid grid-cols-2 gap-2.5">
-                  {RECHARGE_NETWORKS.map((n) => (
+                  {networks.map((n) => (
                     <button key={n.id} type="button" onClick={() => setNetwork(n)}
                       className={`py-4 px-3 rounded-xl font-syne font-bold text-base border-2 transition-all duration-200 ${
                         network?.id === n.id ? "scale-105" : "border-white/12 bg-white/5 hover:bg-white/10"}`}

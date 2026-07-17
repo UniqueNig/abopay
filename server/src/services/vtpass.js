@@ -114,6 +114,29 @@ export async function vtpassBalance() {
   }
 }
 
+// Category → VTpass's own identifier string for GET /services?identifier=X
+// (confirmed against the live API, not guessed — cable's identifier is
+// "tv-subscription", not "cable").
+export const VTPASS_CATEGORY_IDENTIFIER = { airtime: "airtime", data: "data", cable: "tv-subscription" };
+
+// Lists every service VTpass offers under a category — used by the admin
+// "add a service" tool to discover things not in the hardcoded
+// VTPASS_SERVICE table above (e.g. glo-sme-data, smile-direct, showmax).
+// GET, so api-key + public-key per the same rule as vtpassVariations.
+export async function listVtpassServices(identifier) {
+  try {
+    const res = await axios.get(`${env.vtpassBaseUrl}/services`, {
+      params: { identifier },
+      headers: { "api-key": env.vtpassApiKey, "public-key": env.vtpassPublicKey },
+      timeout: 15000,
+    });
+    return res.data?.content || [];
+  } catch (err) {
+    console.error("VTpass services list error:", err.response?.data || err.message);
+    throw new ApiError(502, "Could not load VTpass's service list. Try again.");
+  }
+}
+
 export async function vtpassRequery(requestId) {
   const res = await axios.post(
     `${env.vtpassBaseUrl}/requery`,

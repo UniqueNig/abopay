@@ -35,6 +35,8 @@ import adminSystemLogsRouter from "./routes/adminSystemLogs.js";
 import notificationsRouter from "./routes/notifications.js";
 import pricingRouter from "./routes/pricing.js";
 import adminProductPricesRouter from "./routes/adminProductPrices.js";
+import adminNetworkServicesRouter from "./routes/adminNetworkServices.js";
+import networksRouter from "./routes/networks.js";
 
 const app = express();
 
@@ -77,6 +79,7 @@ app.use("/api/account-deletion-requests", apiLimiter, accountDeletionRequestsRou
 app.use("/api/pin-reset-requests", apiLimiter, pinResetRequestsRouter);
 app.use("/api/notifications", apiLimiter, notificationsRouter);
 app.use("/api/pricing", apiLimiter, pricingRouter);
+app.use("/api/networks", apiLimiter, networksRouter);
 
 // Tighter limiter than regular API traffic — this is exactly the endpoint a
 // brute-force PIN guesser would hammer, on top of the 5-attempt account lock.
@@ -109,6 +112,7 @@ app.use("/api/admin", adminLimiter, adminMarketingRouter);
 app.use("/api/admin/comms", adminLimiter, adminCommsRouter);
 app.use("/api/admin/system-logs", adminLimiter, adminSystemLogsRouter);
 app.use("/api/admin/product-prices", adminLimiter, adminProductPricesRouter);
+app.use("/api/admin/network-services", adminLimiter, adminNetworkServicesRouter);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

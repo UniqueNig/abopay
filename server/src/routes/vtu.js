@@ -7,7 +7,7 @@ import { debitWallet, creditWallet } from "../services/wallet.js";
 import { verifyTransactionPin } from "../services/pin.js";
 import { getSettings, assertNotMaintenance, assertServiceEnabled } from "../services/settings.js";
 import { previewCoupon, recordRedemption } from "../services/coupons.js";
-import { getAirtimeRate, resolvePlanPrice, listCatalog } from "../services/productPricing.js";
+import { getAirtimeRate, resolvePlanPrice, listCatalog, getServiceIDs } from "../services/productPricing.js";
 import { User } from "../models/User.js";
 import { Transaction } from "../models/Transaction.js";
 
@@ -61,15 +61,20 @@ function checkValidation(req, res) {
 // pick a data bundle, rather than guessing a variationCode like "mtn-1000".
 // Returns the admin's configured selling price (via the product-pricing
 // catalog), not VTpass's raw wholesale price — customers should see exactly
-// what they'll be charged, not Abopay's cost.
+// what they'll be charged, not Abopay's cost. A network can now span more
+// than one VTpass service (e.g. Glo's regular + SME data merged together),
+// so this queries each and combines the results; inactive (admin-hidden)
+// plans are filtered out before anything reaches the customer.
 router.get("/data-plans/:network", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = lookupService("data", req.params.network.toLowerCase());
-    if (!serviceID) throw new ApiError(400, `Unknown network: ${req.params.network}`);
-    const rows = await listCatalog("data", serviceID);
+    const serviceIDs = await getServiceIDs("data", req.params.network.toLowerCase());
+    if (serviceIDs.length === 0) throw new ApiError(400, `Unknown network: ${req.params.network}`);
+    const rows = (await Promise.all(serviceIDs.map((id) => listCatalog("data", id)))).flat();
     res.json({
       content: {
-        varations: rows.map((r) => ({ variation_code: r.variationCode, name: r.label, variation_amount: String(r.sellingPrice) })),
+        varations: rows.filter((r) => r.active).map((r) => ({
+          variation_code: r.variationCode, name: r.label, variation_amount: String(r.sellingPrice), serviceID: r.serviceID,
+        })),
       },
     });
   } catch (err) {
@@ -77,15 +82,18 @@ router.get("/data-plans/:network", requireAuth, async (req, res, next) => {
   }
 });
 
-// Same idea for cable bouquets — same selling-price substitution as data above.
+// Same idea for cable bouquets — same selling-price substitution and
+// multi-service merge as data above.
 router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = lookupService("cable", req.params.provider);
-    if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
-    const rows = await listCatalog("cable", serviceID);
+    const serviceIDs = await getServiceIDs("cable", req.params.provider);
+    if (serviceIDs.length === 0) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
+    const rows = (await Promise.all(serviceIDs.map((id) => listCatalog("cable", id)))).flat();
     res.json({
       content: {
-        varations: rows.map((r) => ({ variation_code: r.variationCode, name: r.label, variation_amount: String(r.sellingPrice) })),
+        varations: rows.filter((r) => r.active).map((r) => ({
+          variation_code: r.variationCode, name: r.label, variation_amount: String(r.sellingPrice), serviceID: r.serviceID,
+        })),
       },
     });
   } catch (err) {
@@ -98,7 +106,7 @@ router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
 // user confirms — same trust pattern as the bank-transfer name resolution.
 router.get("/verify-cable/:provider/:smartCardNumber", requireAuth, async (req, res, next) => {
   try {
-    const serviceID = lookupService("cable", req.params.provider);
+    const [serviceID] = await getServiceIDs("cable", req.params.provider);
     if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
     const content = await vtpassMerchantVerify({ billersCode: req.params.smartCardNumber, serviceID });
     res.json({
@@ -195,14 +203,26 @@ router.post(
     body("network").isString().trim().notEmpty(),
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("variationCode").isString().trim().notEmpty(),
+    // Which of the network's (possibly several, once an admin merges in an
+    // extra service like Glo SME) VTpass services this plan belongs to —
+    // optional, defaults to the network's single hardcoded service.
+    body("serviceID").optional().isString().trim(),
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
       const { network, phone, variationCode, pin } = req.body;
-      const serviceID = lookupService("data", network.toLowerCase());
-      if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
+      const allowedServiceIDs = await getServiceIDs("data", network.toLowerCase());
+      if (allowedServiceIDs.length === 0) throw new ApiError(400, `Unknown network: ${network}`);
+
+      // Never trust an arbitrary client-supplied serviceID — only one
+      // that's actually configured for this network is accepted. Falls back
+      // to the first (the network's primary/hardcoded service) if omitted.
+      const requestedServiceID = req.body.serviceID;
+      const serviceID = requestedServiceID && allowedServiceIDs.includes(requestedServiceID)
+        ? requestedServiceID
+        : allowedServiceIDs[0];
 
       const settings = await getSettings();
       assertNotMaintenance(settings);
@@ -266,6 +286,10 @@ router.post(
     // fund routing (billersCode is what VTpass actually charges against), so
     // trusting the client here doesn't create a money-movement risk.
     body("accountName").optional().isString().trim(),
+    // Which of the provider's (possibly several) VTpass services this
+    // bouquet belongs to — optional, defaults to the provider's single
+    // hardcoded service. Cable-only; electricity has no equivalent.
+    body("serviceID").optional().isString().trim(),
     COUPON_RULE,
     PIN_RULE,
   ],
@@ -296,8 +320,13 @@ router.post(
         discount = couponResult?.discount || 0;
         chargeAmount = faceValue + fee - discount;
       } else {
-        serviceID = lookupService("cable", provider);
-        if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${provider}`);
+        const allowedServiceIDs = await getServiceIDs("cable", provider);
+        if (allowedServiceIDs.length === 0) throw new ApiError(400, `Unknown cable provider: ${provider}`);
+        // Never trust an arbitrary client-supplied serviceID — same pattern
+        // as the /data route above.
+        serviceID = req.body.serviceID && allowedServiceIDs.includes(req.body.serviceID)
+          ? req.body.serviceID
+          : allowedServiceIDs[0];
         billersCode = smartCardNumber || meterNumber;
         if (!variationCode) throw new ApiError(400, "A bouquet must be selected.");
         payloadExtra = { variation_code: variationCode };

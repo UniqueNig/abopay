@@ -13,6 +13,10 @@ const productPriceSchema = new mongoose.Schema(
     label: { type: String, default: "" },
     buyingPrice: { type: Number, required: true, min: 0 },
     sellingPrice: { type: Number, required: true, min: 0 },
+    // Hidden from customers (data-plans/cable-plans listings) and rejected
+    // at purchase time when false — lets an admin pull a specific plan
+    // without losing its pricing history.
+    active: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

@@ -29,6 +29,7 @@ const Bills = () => {
   const [pinError, setPinError] = useState("");
   const [pricing, setPricing] = useState(null);
   const [couponCode, setCouponCode] = useState("");
+  const [extraCableProviders, setExtraCableProviders] = useState([]);
   const balance = userData?.balance ?? 0;
   const isCable = selectedType?.id === "cable";
   const isElectricity = selectedType?.id === "electricity";
@@ -36,6 +37,16 @@ const Bills = () => {
   useEffect(() => {
     api.get("/pricing").then((res) => setPricing(res.pricing)).catch(() => {});
   }, []);
+
+  // Admin-added cable providers (e.g. Showmax) beyond the hardcoded 3.
+  useEffect(() => {
+    if (!isCable) return;
+    api.get("/networks/cable").then((res) => setExtraCableProviders(res.networks || [])).catch(() => setExtraCableProviders([]));
+  }, [isCable]);
+
+  const providerOptions = isCable
+    ? [...selectedType.providers.map((p) => ({ value: p, label: p })), ...extraCableProviders.map((n) => ({ value: n.id, label: n.label }))]
+    : (selectedType?.providers || []).map((p) => ({ value: p, label: p }));
 
   const handleChange = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
 
@@ -136,6 +147,7 @@ const Bills = () => {
         amount: amt,
         meterType: form.meterType || "prepaid",
         variationCode: isCable ? selectedPlan?.variation_code : "",
+        serviceID: isCable ? selectedPlan?.serviceID : undefined,
         phone: form.phone,
         accountName: verifiedAccountName || undefined,
         couponCode: couponCode.trim() || undefined,
@@ -246,14 +258,14 @@ const Bills = () => {
                   <div>
                     <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Provider</label>
                     <div className="flex flex-col gap-2">
-                      {selectedType.providers.map((p) => (
-                        <button key={p} type="button" onClick={() => setForm(prev => ({ ...prev, provider: p }))}
+                      {providerOptions.map((p) => (
+                        <button key={p.value} type="button" onClick={() => setForm(prev => ({ ...prev, provider: p.value }))}
                           className={`flex items-center justify-between px-4 py-3.5 rounded-xl border font-dm text-sm transition-all duration-200 ${
-                            form.provider === p
+                            form.provider === p.value
                               ? "bg-orange-400/15 border-orange-400/40 text-orange-400 font-semibold"
                               : "bg-white/5 border-white/15 text-white hover:bg-white/10 hover:border-white/25"
                           }`}>
-                          {p} {form.provider === p && <span>✓</span>}
+                          {p.label} {form.provider === p.value && <span>✓</span>}
                         </button>
                       ))}
                     </div>
