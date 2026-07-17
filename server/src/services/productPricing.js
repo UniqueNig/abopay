@@ -73,6 +73,7 @@ export async function listCatalog(category, serviceID) {
     const liveAmount = parseFloat(v.variation_amount);
     const stored = await getOrSyncPlanPrice(category, serviceID, v.variation_code, v.name, liveAmount);
     rows.push({
+      id: stored._id,
       serviceID,
       variationCode: v.variation_code,
       label: v.name,
