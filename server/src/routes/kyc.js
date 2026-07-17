@@ -32,6 +32,25 @@ async function uploadToCloudinary(uid, file, label) {
   return result.public_id;
 }
 
+router.get("/status", requireAuth, async (req, res, next) => {
+  try {
+    const submission = await KycSubmission.findOne({ uid: req.uid })
+      .select("idType status note submittedAt reviewedAt createdAt")
+      .lean();
+    if (!submission) return res.json({ status: null });
+
+    res.json({
+      status: submission.status,
+      idType: submission.idType,
+      note: submission.note,
+      submittedAt: submission.createdAt,
+      reviewedAt: submission.reviewedAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post(
   "/submit",
   requireAuth,

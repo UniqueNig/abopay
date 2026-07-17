@@ -1,19 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DashboardLayout from "../components/DashboardLayout";
+import { api } from "../api";
 import { auth } from "../firebase";
-import { FiShield, FiCheckCircle, FiAlertCircle, FiUpload } from "react-icons/fi";
+import { FiShield, FiCheckCircle, FiAlertCircle, FiUpload, FiClock, FiXCircle } from "react-icons/fi";
 
 const ID_TYPES = ["NIN", "BVN", "Drivers License", "Passport"];
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 
 const Kyc = () => {
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [kyc, setKyc] = useState(null); // { status, idType, note, submittedAt, reviewedAt } | null
+  const [resubmitting, setResubmitting] = useState(false);
+
   const [idType, setIdType] = useState(ID_TYPES[0]);
   const [idNumber, setIdNumber] = useState("");
   const [idImage, setIdImage] = useState(null);
   const [selfie, setSelfie] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    api
+      .get("/kyc/status")
+      .then((res) => setKyc(res.status ? res : null))
+      .catch(() => setKyc(null))
+      .finally(() => setStatusLoading(false));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -44,12 +56,15 @@ const Kyc = () => {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Submission failed. Try again.");
 
-      setSuccess(true);
+      setKyc({ status: "pending", idType, note: null, submittedAt: new Date().toISOString(), reviewedAt: null });
+      setResubmitting(false);
     } catch (err) {
       setError(err.message || "Submission failed. Try again.");
     }
     setLoading(false);
   };
+
+  const showForm = !statusLoading && (!kyc || resubmitting);
 
   return (
     <DashboardLayout>
@@ -59,10 +74,26 @@ const Kyc = () => {
           <p className="text-white/40 font-dm text-sm mt-1">Verify your identity to unlock higher transaction limits</p>
         </div>
 
-        {success ? (
+        {statusLoading ? (
+          <div className="card-glass p-10 flex items-center justify-center">
+            <p className="text-white/40 font-dm text-sm">Loading...</p>
+          </div>
+        ) : kyc?.status === "verified" ? (
           <div className="card-glass p-10 flex flex-col items-center text-center gap-4">
             <div className="w-16 h-16 rounded-full bg-secondary/15 border border-secondary/20 flex items-center justify-center">
               <FiCheckCircle size={28} className="text-secondary" />
+            </div>
+            <div>
+              <h2 className="font-syne font-bold text-white text-lg mb-1">Identity Verified</h2>
+              <p className="text-white/50 font-dm text-sm">
+                Your {kyc.idType} has been verified. You're all set.
+              </p>
+            </div>
+          </div>
+        ) : kyc?.status === "pending" ? (
+          <div className="card-glass p-10 flex flex-col items-center text-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-secondary/15 border border-secondary/20 flex items-center justify-center">
+              <FiClock size={28} className="text-secondary" />
             </div>
             <div>
               <h2 className="font-syne font-bold text-white text-lg mb-1">Submitted for Review</h2>
@@ -71,7 +102,25 @@ const Kyc = () => {
               </p>
             </div>
           </div>
-        ) : (
+        ) : kyc?.status === "rejected" && !resubmitting ? (
+          <div className="card-glass p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-red-500/15 border border-red-500/25 flex items-center justify-center">
+              <FiXCircle size={28} className="text-red-400" />
+            </div>
+            <div>
+              <h2 className="font-syne font-bold text-white text-lg mb-1">Verification Rejected</h2>
+              <p className="text-white/50 font-dm text-sm mb-3">
+                {kyc.note || "Your submission couldn't be verified."}
+              </p>
+              <p className="text-white/35 font-dm text-xs">Please review the reason above and resubmit.</p>
+            </div>
+            <button onClick={() => setResubmitting(true)} className="btn-primary w-full">
+              Resubmit Documents
+            </button>
+          </div>
+        ) : null}
+
+        {showForm && (
           <div className="card-glass p-6">
             <div className="flex items-center gap-2 mb-5 text-white/50 font-dm text-xs">
               <FiShield size={14} /> Your documents are stored securely and only visible to our compliance team.
