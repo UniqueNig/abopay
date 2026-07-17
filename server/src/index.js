@@ -34,6 +34,7 @@ import adminCommsRouter from "./routes/adminComms.js";
 import adminSystemLogsRouter from "./routes/adminSystemLogs.js";
 import notificationsRouter from "./routes/notifications.js";
 import pricingRouter from "./routes/pricing.js";
+import adminProductPricesRouter from "./routes/adminProductPrices.js";
 
 const app = express();
 
@@ -107,6 +108,7 @@ app.use("/api/admin", adminLimiter, adminFinanceRouter);
 app.use("/api/admin", adminLimiter, adminMarketingRouter);
 app.use("/api/admin/comms", adminLimiter, adminCommsRouter);
 app.use("/api/admin/system-logs", adminLimiter, adminSystemLogsRouter);
+app.use("/api/admin/product-prices", adminLimiter, adminProductPricesRouter);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

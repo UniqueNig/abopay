@@ -19,13 +19,13 @@ const appSettingsSchema = new mongoose.Schema(
       data: { type: Boolean, default: true },
       bills: { type: Boolean, default: true },
     },
+    // Airtime/data pricing lives in the ProductPrice catalog now (see
+    // models/ProductPrice.js, services/productPricing.js) — per-network
+    // rates and per-plan prices, not a blanket percentage. Transfer/bill
+    // fees stay here since they're still a flat/percent add-on.
     pricing: {
       transferFeeFlat: { type: Number, default: 0 },
       transferFeePercent: { type: Number, default: 0 },
-      // Field names kept as "Discount" to match the already-built admin UI,
-      // but they function as a markup — see services/settings.js.
-      airtimeDiscountPercent: { type: Number, default: 0 },
-      dataDiscountPercent: { type: Number, default: 0 },
       billFeeFlat: { type: Number, default: 0 },
     },
   },

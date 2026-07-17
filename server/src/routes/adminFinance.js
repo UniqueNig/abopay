@@ -54,6 +54,34 @@ router.get("/finance", requireAdmin, async (req, res, next) => {
     const totalCreditVolume = creditAgg?.total || 0;
     const totalDebitVolume = debitAgg?.total || 0;
 
+    // Real, per-transaction recorded margin — airtime/data/cable record
+    // meta.buyingPrice/sellingPrice (product-pricing catalog), transfers and
+    // electricity bills record meta.fee/couponDiscount (flat/percent fee
+    // model). Anything else (deposits, wallet transfers, admin adjustments)
+    // correctly contributes zero margin — those aren't revenue-generating.
+    const [marginAgg] = await Transaction.aggregate([
+      { $match: { type: "debit", createdAt: { $gte: windowStart } } },
+      {
+        $project: {
+          margin: {
+            $cond: [
+              { $and: [{ $ifNull: ["$meta.sellingPrice", false] }, { $ifNull: ["$meta.buyingPrice", false] }] },
+              { $subtract: ["$meta.sellingPrice", "$meta.buyingPrice"] },
+              {
+                $cond: [
+                  { $ifNull: ["$meta.fee", false] },
+                  { $subtract: [{ $ifNull: ["$meta.fee", 0] }, { $ifNull: ["$meta.couponDiscount", 0] }] },
+                  0,
+                ],
+              },
+            ],
+          },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$margin" } } },
+    ]);
+    const totalMargin = (marginAgg?.total || 0) - totalExpenses;
+
     res.json({
       totals: {
         totalCreditVolume,
@@ -63,6 +91,10 @@ router.get("/finance", requireAdmin, async (req, res, next) => {
         // Rough estimate (transaction volume minus logged expenses), not real
         // accounting — matches how the admin page itself already frames this.
         netProfit: totalCreditVolume - totalExpenses,
+        // Real profit: sum of actual recorded margin per transaction (see
+        // above), minus logged expenses. More accurate than netProfit, but
+        // only as complete as what each purchase route records.
+        totalMargin,
       },
       series,
       expenses: expenseDocs.map((e) => ({ id: e._id, label: e.label, amount: e.amount, date: e.createdAt })),

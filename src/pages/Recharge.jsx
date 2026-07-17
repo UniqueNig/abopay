@@ -32,16 +32,20 @@ const Recharge = () => {
   }, []);
 
   // Data bundles have fixed VTpass-defined prices, so the "amount" for a
-  // data purchase comes from whichever plan was picked, not free typing.
+  // data purchase comes from whichever plan was picked — and the plans
+  // endpoint already returns the admin's real selling price, not VTpass's
+  // wholesale cost, so no client-side math is needed for data.
   const finalAmount = type === "data"
     ? parseFloat(selectedPlan?.variation_amount || 0)
     : amount === "custom" ? parseFloat(customAmount) : parseFloat(amount);
 
-  // VTpass sells airtime/data to resellers below face value, so the discount
-  // here is subtracted from what the customer pays — never added on top.
-  const discountPercent = pricing ? (type === "airtime" ? pricing.airtimeDiscountPercent : pricing.dataDiscountPercent) : 0;
-  const discount = finalAmount * (discountPercent / 100);
-  const totalAmount = Math.max(0, finalAmount - discount);
+  // Airtime prices per-network via the admin's Pricing Catalog (a percent of
+  // face value, since airtime has no fixed "plan") — subtracted from what
+  // the customer pays, never added on top, since VTpass sells airtime to
+  // resellers below face value.
+  const sellingPercent = type === "airtime" ? pricing?.airtimeRates?.[network?.id] ?? 100 : 100;
+  const totalAmount = type === "airtime" ? finalAmount * (sellingPercent / 100) : finalAmount;
+  const discount = Math.max(0, finalAmount - totalAmount);
 
   // Real VTpass plan codes must be fetched per network — a guessed code like
   // "mtn-1000" doesn't match anything VTpass actually offers.
@@ -87,7 +91,7 @@ const Recharge = () => {
 
       const payload = type === "airtime"
         ? { network: network.id, phone, amount: finalAmount, pin }
-        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code, pin };
+        : { network: network.id, phone, variationCode: selectedPlan.variation_code, pin };
 
       await api.post(path, payload);
       await fetchUserData(user.uid);

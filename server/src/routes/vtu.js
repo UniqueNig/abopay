@@ -2,11 +2,12 @@ import { Router } from "express";
 import { body, validationResult } from "express-validator";
 import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
-import { vtpassPay, vtpassVariations, vtpassMerchantVerify, lookupService } from "../services/vtpass.js";
+import { vtpassPay, vtpassMerchantVerify, lookupService } from "../services/vtpass.js";
 import { debitWallet, creditWallet } from "../services/wallet.js";
 import { verifyTransactionPin } from "../services/pin.js";
 import { getSettings, assertNotMaintenance, assertServiceEnabled } from "../services/settings.js";
 import { previewCoupon, recordRedemption } from "../services/coupons.js";
+import { getAirtimeRate, resolvePlanPrice, listCatalog } from "../services/productPricing.js";
 import { User } from "../models/User.js";
 import { Transaction } from "../models/Transaction.js";
 
@@ -58,23 +59,35 @@ function checkValidation(req, res) {
 
 // Real VTpass plan codes — the frontend must call this before letting a user
 // pick a data bundle, rather than guessing a variationCode like "mtn-1000".
+// Returns the admin's configured selling price (via the product-pricing
+// catalog), not VTpass's raw wholesale price — customers should see exactly
+// what they'll be charged, not Abopay's cost.
 router.get("/data-plans/:network", requireAuth, async (req, res, next) => {
   try {
     const serviceID = lookupService("data", req.params.network.toLowerCase());
     if (!serviceID) throw new ApiError(400, `Unknown network: ${req.params.network}`);
-    res.json(await vtpassVariations(serviceID));
+    const rows = await listCatalog("data", serviceID);
+    res.json({
+      content: {
+        varations: rows.map((r) => ({ variation_code: r.variationCode, name: r.label, variation_amount: String(r.sellingPrice) })),
+      },
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// Same idea for cable bouquets — Bills.jsx currently sends variationCode: "",
-// which VTpass will reject the same way it rejected the guessed data codes.
+// Same idea for cable bouquets — same selling-price substitution as data above.
 router.get("/cable-plans/:provider", requireAuth, async (req, res, next) => {
   try {
     const serviceID = lookupService("cable", req.params.provider);
     if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${req.params.provider}`);
-    res.json(await vtpassVariations(serviceID));
+    const rows = await listCatalog("cable", serviceID);
+    res.json({
+      content: {
+        varations: rows.map((r) => ({ variation_code: r.variationCode, name: r.label, variation_amount: String(r.sellingPrice) })),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -135,16 +148,16 @@ router.post(
       assertNotMaintenance(settings);
       assertServiceEnabled(settings, "airtime");
 
-      // VTpass sells airtime to resellers below face value (that wholesale
-      // spread is the actual source of profit) — so the customer is charged
-      // face value MINUS this discount, never more. VTpass still gets paid
-      // to deliver the full face-value amount; the admin is responsible for
-      // keeping this discount below whatever wholesale margin VTpass
-      // actually gives this account, which isn't visible from this code.
-      // No coupon support here — there's no safe way to cap a further
-      // stacked discount without knowing that real wholesale rate.
-      const discountAmount = amount * (settings.pricing.airtimeDiscountPercent / 100);
-      const chargeAmount = Math.max(0, amount - discountAmount);
+      // VTpass sells airtime to resellers below face value — that wholesale
+      // spread is the actual source of profit. Rates are configured per
+      // network in the admin Pricing Catalog (services/productPricing.js),
+      // as a percent of face value; an unconfigured network defaults to
+      // 100/100 (sell at face value, zero recorded margin). No coupon
+      // support — there's no safe way to cap a further stacked discount
+      // without knowing VTpass's real wholesale rate for this account.
+      const rate = await getAirtimeRate(serviceID);
+      const buyingPrice = amount * (rate.buyingPrice / 100);
+      const chargeAmount = amount * (rate.sellingPrice / 100);
 
       await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
@@ -158,7 +171,7 @@ router.post(
         ref,
         title,
         "📱",
-        { network, phone, amount, discount: discountAmount },
+        { network, phone, amount, buyingPrice, sellingPrice: chargeAmount },
         () => vtpassPay({ request_id: requestId, serviceID, amount, phone, billersCode: phone, quantity: 1 })
       );
 
@@ -182,13 +195,12 @@ router.post(
     body("network").isString().trim().notEmpty(),
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("variationCode").isString().trim().notEmpty(),
-    body("amount").isFloat({ gt: 0 }),
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, variationCode, amount, pin } = req.body;
+      const { network, phone, variationCode, pin } = req.body;
       const serviceID = lookupService("data", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
@@ -196,10 +208,12 @@ router.post(
       assertNotMaintenance(settings);
       assertServiceEnabled(settings, "data");
 
-      // Same discount-off-face-value model as airtime above — see that
-      // route's comment for why this is subtracted rather than added.
-      const discountAmount = amount * (settings.pricing.dataDiscountPercent / 100);
-      const chargeAmount = Math.max(0, amount - discountAmount);
+      // Authoritative price resolved server-side — a client-supplied amount
+      // is never trusted here, since data bundles have a real fixed VTpass
+      // price per variationCode (unlike airtime's free-typed amount).
+      const priced = await resolvePlanPrice("data", serviceID, variationCode);
+      const faceValue = priced.buyingPrice;
+      const chargeAmount = priced.sellingPrice;
 
       await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
@@ -213,8 +227,8 @@ router.post(
         ref,
         title,
         "📶",
-        { network, phone, variationCode, amount, discount: discountAmount },
-        () => vtpassPay({ request_id: requestId, serviceID, billersCode: phone, variation_code: variationCode, amount, phone, quantity: 1 })
+        { network, phone, variationCode, buyingPrice: priced.buyingPrice, sellingPrice: priced.sellingPrice },
+        () => vtpassPay({ request_id: requestId, serviceID, billersCode: phone, variation_code: variationCode, amount: faceValue, phone, quantity: 1 })
       );
 
       const txStatus = vtpassRes?.content?.transactions?.status;
@@ -236,7 +250,9 @@ router.post(
   [
     body("billType").isIn(["electricity", "cable"]),
     body("provider").isString().trim().notEmpty(),
-    body("amount").isFloat({ gt: 0 }),
+    // Required for electricity (customer types any amount); ignored for
+    // cable, which resolves its authoritative price server-side below.
+    body("amount").optional().isFloat({ gt: 0 }),
     // VTpass requires phone as a mandatory /pay parameter for bills — don't
     // fall back to the user's profile phone, which may be blank (e.g. Google
     // sign-in never collects one) and isn't necessarily tied to this meter/card.
@@ -262,29 +278,52 @@ router.post(
       assertNotMaintenance(settings);
       assertServiceEnabled(settings, "bills");
 
-      const fee = settings.pricing.billFeeFlat;
-      const couponResult = await previewCoupon(couponCode, req.uid, fee);
-      const discount = couponResult?.discount || 0;
-      const chargeAmount = amount + fee - discount;
-
-      await requireBalanceAndPin(req.uid, chargeAmount, pin);
-
       let serviceID, billersCode, payloadExtra = {};
+      let faceValue, chargeAmount, couponResult = null, discount = 0, fee = 0, buyingPrice = null, sellingPrice = null;
+
       if (billType === "electricity") {
         serviceID = lookupService("electricity", provider);
         if (!serviceID) throw new ApiError(400, `Unknown electricity provider: ${provider}`);
         billersCode = meterNumber;
         payloadExtra = { variation_code: meterType || "prepaid" };
+
+        // Electricity keeps the flat additive fee — arbitrary user-typed
+        // amount, no fixed VTpass "plan" to catalog-price like data/cable.
+        if (!(amount > 0)) throw new ApiError(400, "A valid amount is required.");
+        faceValue = amount;
+        fee = settings.pricing.billFeeFlat;
+        couponResult = await previewCoupon(couponCode, req.uid, fee);
+        discount = couponResult?.discount || 0;
+        chargeAmount = faceValue + fee - discount;
       } else {
         serviceID = lookupService("cable", provider);
         if (!serviceID) throw new ApiError(400, `Unknown cable provider: ${provider}`);
         billersCode = smartCardNumber || meterNumber;
-        payloadExtra = { variation_code: variationCode || "" };
+        if (!variationCode) throw new ApiError(400, "A bouquet must be selected.");
+        payloadExtra = { variation_code: variationCode };
+
+        // Same catalog-based, tamper-proof pricing as data purchases —
+        // never trusts a client-supplied amount. No coupon support, same
+        // reasoning as data: no safe cap without knowing VTpass's real rate.
+        const priced = await resolvePlanPrice("cable", serviceID, variationCode);
+        faceValue = priced.buyingPrice;
+        chargeAmount = priced.sellingPrice;
+        buyingPrice = priced.buyingPrice;
+        sellingPrice = priced.sellingPrice;
       }
+
+      await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
       const requestId = Date.now().toString();
       const category = billType === "electricity" ? "⚡" : "📺";
       const ref = "BILL-" + requestId;
+
+      const meta = billType === "electricity"
+        ? {
+            provider, billType, billersCode, accountName: accountName || null,
+            amount: faceValue, fee, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount,
+          }
+        : { provider, billType, billersCode, accountName: accountName || null, buyingPrice, sellingPrice };
 
       const vtpassRes = await debitThenPurchase(
         req.uid,
@@ -292,13 +331,10 @@ router.post(
         ref,
         `${provider} ${billType}`,
         category,
-        {
-          provider, billType, billersCode, accountName: accountName || null,
-          amount, fee, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount,
-        },
+        meta,
         () =>
           vtpassPay(
-            { request_id: requestId, serviceID, billersCode, amount, phone, quantity: 1, ...payloadExtra },
+            { request_id: requestId, serviceID, billersCode, amount: faceValue, phone, quantity: 1, ...payloadExtra },
             30000
           )
       );
