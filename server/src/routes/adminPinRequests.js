@@ -4,6 +4,7 @@ import { requireAdmin } from "../middleware/requireAdmin.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { PinResetRequest } from "../models/PinResetRequest.js";
 import { User } from "../models/User.js";
+import { sendPinResetApprovedEmail } from "../services/email.js";
 
 const router = Router();
 
@@ -35,10 +36,12 @@ router.post(
         // Clears the PIN hash (prompts a new one on next set) and lifts any
         // lockout from too many failed attempts — this is the only way a
         // locked account gets unstuck.
-        await User.updateOne(
+        const user = await User.findOneAndUpdate(
           { uid: request.uid },
-          { transactionPinHash: null, pinAttempts: 0, pinLocked: false }
-        );
+          { transactionPinHash: null, pinAttempts: 0, pinLocked: false },
+          { new: true }
+        ).select("email fullName");
+        if (user) sendPinResetApprovedEmail(user.email, user.fullName);
       }
 
       request.status = action === "approve" ? "approved" : "rejected";

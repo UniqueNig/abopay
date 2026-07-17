@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { formatNaira, formatDate, formatTime } from "../utils/helpers";
 import {
   FiSend, FiFileText, FiSmartphone, FiTrendingUp,
-  FiArrowUpRight, FiArrowDownLeft, FiEye, FiEyeOff, FiPlusCircle,
+  FiArrowUpRight, FiArrowDownLeft, FiEye, FiEyeOff, FiPlusCircle, FiCopy, FiCheck,
 } from "react-icons/fi";
 
 const quickActions = [
@@ -20,9 +20,17 @@ const Dashboard = () => {
   const { userData, user } = useAuth();
   const [hideBalance, setHideBalance] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const balance = userData?.balance ?? 0;
   const accountNo = userData?.accountNumber ?? "—";
+
+  const handleCopyAccountNo = () => {
+    if (!userData?.accountNumber) return;
+    navigator.clipboard.writeText(userData.accountNumber);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
   const transactions = userData?.transactions
     ? [...userData.transactions].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10)
     : [];
@@ -60,10 +68,16 @@ const Dashboard = () => {
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <div className="bg-white/8 border border-white/12 rounded-xl px-4 py-2">
-              <p className="text-white/40 font-dm text-[11px] uppercase tracking-wider mb-0.5">Account No.</p>
-              <p className="text-white font-syne font-semibold text-sm">{accountNo}</p>
-            </div>
+            <button
+              onClick={handleCopyAccountNo}
+              className="flex items-center gap-2 bg-white/8 border border-white/12 rounded-xl px-4 py-2 hover:bg-white/12 transition-colors"
+            >
+              <div className="text-left">
+                <p className="text-white/40 font-dm text-[11px] uppercase tracking-wider mb-0.5">Account No.</p>
+                <p className="text-white font-syne font-semibold text-sm">{accountNo}</p>
+              </div>
+              {copied ? <FiCheck size={14} className="text-secondary" /> : <FiCopy size={14} className="text-white/40" />}
+            </button>
             <div className="bg-secondary/10 border border-secondary/20 rounded-xl px-4 py-2">
               <p className="text-white/40 font-dm text-[11px] uppercase tracking-wider mb-0.5">Bank</p>
               <p className="text-secondary font-syne font-semibold text-sm">Abopay</p>

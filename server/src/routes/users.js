@@ -4,6 +4,7 @@ import { User } from "../models/User.js";
 import { Transaction } from "../models/Transaction.js";
 import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
+import { sendWelcomeEmail } from "../services/email.js";
 
 const router = Router();
 
@@ -73,6 +74,7 @@ router.post(
         phone: req.body.phone || "",
         accountNumber: generateAccountNumber(),
       });
+      sendWelcomeEmail(user.email, user.fullName);
       res.status(201).json({ user });
     } catch (err) {
       next(err);
