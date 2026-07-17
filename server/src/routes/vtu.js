@@ -4,15 +4,19 @@ import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { VTPASS_SERVICE, vtpassPay, vtpassVariations, vtpassMerchantVerify } from "../services/vtpass.js";
 import { debitWallet } from "../services/wallet.js";
+import { verifyTransactionPin } from "../services/pin.js";
 import { User } from "../models/User.js";
 
 const router = Router();
 
-async function requireBalance(uid, amount) {
+const PIN_RULE = body("pin").isString().matches(/^\d{4}$/).withMessage("A valid 4-digit PIN is required.");
+
+async function requireBalanceAndPin(uid, amount, pin) {
   const user = await User.findOne({ uid });
   if (!user) throw new ApiError(404, "User not found.");
   if (user.suspended) throw new ApiError(403, "This account has been suspended.");
   if (user.balance < amount) throw new ApiError(400, "Insufficient balance.");
+  await verifyTransactionPin(uid, pin);
   return user;
 }
 
@@ -67,6 +71,23 @@ router.get("/verify-cable/:provider/:smartCardNumber", requireAuth, async (req, 
   }
 });
 
+// Same idea for electricity meters — needs an extra "type" param
+// (prepaid/postpaid) that cable doesn't.
+router.get("/verify-electricity/:provider/:meterNumber", requireAuth, async (req, res, next) => {
+  try {
+    const serviceID = VTPASS_SERVICE.electricity[req.params.provider];
+    if (!serviceID) throw new ApiError(400, `Unknown electricity provider: ${req.params.provider}`);
+    const type = req.query.type === "postpaid" ? "postpaid" : "prepaid";
+    const content = await vtpassMerchantVerify({ billersCode: req.params.meterNumber, serviceID, extra: { type } });
+    res.json({
+      customerName: content?.Customer_Name || null,
+      address: content?.Address || content?.Customer_District || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post(
   "/airtime",
   requireAuth,
@@ -74,15 +95,16 @@ router.post(
     body("network").isString().trim().notEmpty(),
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("amount").isFloat({ gt: 0 }),
+    PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, amount } = req.body;
+      const { network, phone, amount, pin } = req.body;
       const serviceID = VTPASS_SERVICE.airtime[network.toLowerCase()];
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
-      await requireBalance(req.uid, amount);
+      await requireBalanceAndPin(req.uid, amount, pin);
 
       const requestId = Date.now().toString();
       const vtpassRes = await vtpassPay({
@@ -118,15 +140,16 @@ router.post(
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("variationCode").isString().trim().notEmpty(),
     body("amount").isFloat({ gt: 0 }),
+    PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, variationCode, amount } = req.body;
+      const { network, phone, variationCode, amount, pin } = req.body;
       const serviceID = VTPASS_SERVICE.data[network.toLowerCase()];
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
-      await requireBalance(req.uid, amount);
+      await requireBalanceAndPin(req.uid, amount, pin);
 
       const requestId = Date.now().toString();
       const vtpassRes = await vtpassPay({
@@ -171,13 +194,19 @@ router.post(
     body("smartCardNumber").optional().isString().trim(),
     body("meterType").optional().isString().trim(),
     body("variationCode").optional().isString().trim(),
+    // Purely informational — whatever name was shown during the verify step,
+    // carried through so it shows on the transaction receipt. Not used for
+    // fund routing (billersCode is what VTpass actually charges against), so
+    // trusting the client here doesn't create a money-movement risk.
+    body("accountName").optional().isString().trim(),
+    PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { billType, provider, meterNumber, smartCardNumber, amount, meterType, variationCode, phone } = req.body;
+      const { billType, provider, meterNumber, smartCardNumber, amount, meterType, variationCode, phone, accountName, pin } = req.body;
 
-      await requireBalance(req.uid, amount);
+      await requireBalanceAndPin(req.uid, amount, pin);
 
       let serviceID, billersCode, payloadExtra = {};
       if (billType === "electricity") {
@@ -215,6 +244,7 @@ router.post(
         provider,
         billType,
         billersCode,
+        accountName: accountName || null,
         vtpassTxId: vtpassRes?.content?.transactions?.transactionId,
         deliveryStatus: txStatus,
         electricityToken,

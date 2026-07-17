@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from "react";
 import DashboardLayout from "../components/DashboardLayout";
+import PinConfirmModal from "../components/PinConfirmModal";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
 import { RECHARGE_NETWORKS, RECHARGE_AMOUNTS, formatNaira } from "../utils/helpers";
 import { FiCheckCircle, FiAlertCircle } from "react-icons/fi";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const Recharge = () => {
   const { user, userData, fetchUserData } = useAuth();
+  const navigate = useNavigate();
   const [network, setNetwork] = useState(null);
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("");
@@ -20,6 +22,8 @@ const Recharge = () => {
   const [plansLoading, setPlansLoading] = useState(false);
   const [plansError, setPlansError] = useState("");
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinError, setPinError] = useState("");
   const balance = userData?.balance ?? 0;
 
   // Data bundles have fixed VTpass-defined prices, so the "amount" for a
@@ -46,7 +50,7 @@ const Recharge = () => {
       .finally(() => setPlansLoading(false));
   }, [type, network]);
 
-  const handlePay = async (e) => {
+  const handlePayClick = (e) => {
     e.preventDefault();
     setError("");
     if (!network || !phone || !finalAmount) return;
@@ -56,20 +60,31 @@ const Recharge = () => {
       return;
     }
 
+    if (!userData?.hasPin) {
+      navigate("/set-pin", { state: { returnTo: "/recharge" } });
+      return;
+    }
+    setPinError("");
+    setShowPinModal(true);
+  };
+
+  const handlePinConfirm = async (pin) => {
     setLoading(true);
+    setPinError("");
     try {
       const path = type === "airtime" ? "/vtu/airtime" : "/vtu/data";
 
       const payload = type === "airtime"
-        ? { network: network.id, phone, amount: finalAmount }
-        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code };
+        ? { network: network.id, phone, amount: finalAmount, pin }
+        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code, pin };
 
       await api.post(path, payload);
       await fetchUserData(user.uid);
+      setShowPinModal(false);
       setSuccess(true);
     } catch (err) {
       console.error("Recharge error:", err);
-      setError(err.message?.includes("Insufficient")
+      setPinError(err.message?.includes("Insufficient")
         ? "Insufficient balance. Please deposit more funds."
         : err.message || "Recharge failed. Please try again.");
     }
@@ -131,7 +146,7 @@ const Recharge = () => {
               </div>
             )}
 
-            <form onSubmit={handlePay} className="flex flex-col gap-5">
+            <form onSubmit={handlePayClick} className="flex flex-col gap-5">
               {/* Type */}
               <div>
                 <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Type</label>
@@ -234,6 +249,17 @@ const Recharge = () => {
               </p>
             </form>
           </div>
+        )}
+
+        {showPinModal && (
+          <PinConfirmModal
+            title="Confirm Purchase"
+            subtitle={`Enter your PIN to pay ${formatNaira(finalAmount || 0)}`}
+            onConfirm={handlePinConfirm}
+            onClose={() => { setShowPinModal(false); setPinError(""); }}
+            submitting={loading}
+            error={pinError}
+          />
         )}
       </div>
     </DashboardLayout>

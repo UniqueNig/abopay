@@ -1,13 +1,16 @@
 import React, { useState } from "react";
 import DashboardLayout from "../components/DashboardLayout";
+import PinConfirmModal from "../components/PinConfirmModal";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
 import { BANKS, formatNaira } from "../utils/helpers";
 import { FiSend, FiCheckCircle, FiAlertCircle } from "react-icons/fi";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
 const Transfer = () => {
   const { user, userData, fetchUserData } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ bank: "", bankCode: "", accountNumber: "", accountName: "", amount: "", narration: "" });
   const [bankSearch, setBankSearch] = useState("");
   const [showBankDropdown, setShowBankDropdown] = useState(false);
@@ -15,6 +18,8 @@ const Transfer = () => {
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinError, setPinError] = useState("");
   const balance = userData?.balance ?? 0;
 
   const filteredBanks = BANKS.filter((b) =>
@@ -53,28 +58,41 @@ const Transfer = () => {
     setVerifying(false);
   };
 
-  const handleTransfer = async () => {
+  const handleConfirmClick = () => {
+    if (!userData?.hasPin) {
+      navigate("/set-pin", { state: { returnTo: "/transfer" } });
+      return;
+    }
+    setPinError("");
+    setShowPinModal(true);
+  };
+
+  const handlePinConfirm = async (pin) => {
     setLoading(true);
-    setError("");
+    setPinError("");
     try {
       const result = await api.post("/transfers", {
         accountNumber: form.accountNumber,
         bankCode: form.bankCode,
         amount: parseFloat(form.amount),
         narration: form.narration || "Abopay Transfer",
+        pin,
       });
 
       await fetchUserData(user.uid);
 
-      if (result.success) setStep(3);
+      if (result.success) {
+        setShowPinModal(false);
+        setStep(3);
+      }
     } catch (err) {
       console.error("Transfer error:", err);
-      setError(
+      setPinError(
         err.message?.includes("Insufficient")
           ? "Insufficient balance."
           : err.message?.includes("recipient")
           ? "Could not verify account details. Check and try again."
-          : "Transfer failed. Please try again or contact support."
+          : err.message || "Transfer failed. Please try again or contact support."
       );
     }
     setLoading(false);
@@ -206,13 +224,24 @@ const Transfer = () => {
                 </div>
                 <div className="flex gap-3 mt-2">
                   <button onClick={() => { setStep(1); setError(""); }} className="btn-outline flex-1">Back</button>
-                  <button onClick={handleTransfer} disabled={loading} className="btn-primary flex-1 disabled:opacity-60">
+                  <button onClick={handleConfirmClick} disabled={loading} className="btn-primary flex-1 disabled:opacity-60">
                     {loading ? "Sending..." : "Confirm & Send"}
                   </button>
                 </div>
               </div>
             )}
           </div>
+        )}
+
+        {showPinModal && (
+          <PinConfirmModal
+            title="Confirm Transfer"
+            subtitle={`Enter your PIN to send ${formatNaira(parseFloat(form.amount) || 0)}`}
+            onConfirm={handlePinConfirm}
+            onClose={() => { setShowPinModal(false); setPinError(""); }}
+            submitting={loading}
+            error={pinError}
+          />
         )}
       </div>
     </DashboardLayout>

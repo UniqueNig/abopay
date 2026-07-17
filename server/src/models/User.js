@@ -10,9 +10,11 @@ const userSchema = new mongoose.Schema(
     savingsBalance: { type: Number, default: 0, min: 0 },
     accountNumber: { type: String, required: true, unique: true },
     suspended: { type: Boolean, default: false },
-    // Unused until a real transaction-PIN feature ships — exists now so the
-    // PIN Management admin queue has a real field to clear on approval.
     transactionPinHash: { type: String, default: null },
+    pinAttempts: { type: Number, default: 0 },
+    // Locked after too many wrong PINs — only cleared via an admin-approved
+    // PIN reset request (server/src/routes/adminPinRequests.js), not a timer.
+    pinLocked: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

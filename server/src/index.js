@@ -25,6 +25,8 @@ import adminDisputesRouter from "./routes/adminDisputes.js";
 import adminAccountDeletionsRouter from "./routes/adminAccountDeletions.js";
 import adminKycRouter from "./routes/adminKyc.js";
 import adminPinRequestsRouter from "./routes/adminPinRequests.js";
+import pinRouter from "./routes/pin.js";
+import pinResetRequestsRouter from "./routes/pinResetRequests.js";
 
 const app = express();
 
@@ -57,6 +59,12 @@ app.use("/api/vtu", apiLimiter, vtuRouter);
 app.use("/api/auth", apiLimiter, authRouter);
 app.use("/api/disputes", apiLimiter, disputesRouter);
 app.use("/api/account-deletion-requests", apiLimiter, accountDeletionRequestsRouter);
+app.use("/api/pin-reset-requests", apiLimiter, pinResetRequestsRouter);
+
+// Tighter limiter than regular API traffic — this is exactly the endpoint a
+// brute-force PIN guesser would hammer, on top of the 5-attempt account lock.
+const pinLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+app.use("/api/pin", pinLimiter, pinRouter);
 
 // Tighter limiter for file uploads specifically — larger request bodies,
 // more expensive to process, no reason to allow the same volume as

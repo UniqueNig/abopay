@@ -25,9 +25,13 @@ router.get("/me", requireAuth, async (req, res, next) => {
       .limit(200)
       .lean();
 
+    // Never send the hash itself — just whether one exists.
+    const { transactionPinHash, ...userWithoutPinHash } = user.toObject();
+
     res.json({
       user: {
-        ...user.toObject(),
+        ...userWithoutPinHash,
+        hasPin: !!transactionPinHash,
         transactions: transactions.map((tx) => ({
           id: tx.reference,
           type: tx.type,

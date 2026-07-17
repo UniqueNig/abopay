@@ -1,22 +1,31 @@
 import { Router } from "express";
 import { body, validationResult } from "express-validator";
 import { requireAdmin } from "../middleware/requireAdmin.js";
-import { ApiError } from "../middleware/errorHandler.js";
-import { firebaseBucket } from "../config/firebaseAdmin.js";
+import { cloudinary, assertCloudinaryConfigured } from "../config/cloudinary.js";
 import { KycSubmission } from "../models/KycSubmission.js";
 import { User } from "../models/User.js";
+import { ApiError } from "../middleware/errorHandler.js";
 
 const router = Router();
 
-async function signedUrl(path) {
-  const [url] = await firebaseBucket
-    .file(path)
-    .getSignedUrl({ action: "read", expires: Date.now() + 15 * 60 * 1000 }); // 15 min
-  return url;
+function signedUrl(publicId) {
+  // Signed URL for a private ("authenticated" delivery type) asset — the
+  // signature can't be forged without the account's API secret, so this
+  // isn't guessable/publicly reachable the way an unsigned URL would be.
+  // (True time-boxed expiry needs Cloudinary's token-based-auth add-on,
+  // which isn't enabled here — this matches what a base Cloudinary plan
+  // supports.)
+  return cloudinary.url(publicId, {
+    type: "authenticated",
+    sign_url: true,
+    secure: true,
+    resource_type: "image",
+  });
 }
 
 router.get("/", requireAdmin, async (req, res, next) => {
   try {
+    assertCloudinaryConfigured();
     const { status = "pending" } = req.query;
     const filter = status === "all" ? {} : { status };
 

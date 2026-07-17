@@ -35,4 +35,10 @@ export const env = {
   vtpassPublicKey: process.env.VTPASS_PUBLIC_KEY,
   vtpassSecretKey: process.env.VTPASS_SECRET_KEY,
   vtpassBaseUrl: process.env.VTPASS_BASE_URL || "https://sandbox.vtpass.com/api",
+  // Not in `required` above — missing these should only break KYC uploads
+  // (checked lazily in config/cloudinary.js), not take down the whole server
+  // on deploy before the operator has had a chance to set them.
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY,
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET,
 };

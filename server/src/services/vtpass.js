@@ -74,11 +74,11 @@ export async function vtpassVariations(serviceID) {
 // VTpass's own docs don't clearly confirm that field's exact name, and
 // guessing wrong could silently charge the wrong amount. The bouquet price
 // from vtpassVariations (already confirmed correct) is what's actually billed.
-export async function vtpassMerchantVerify({ billersCode, serviceID }) {
+export async function vtpassMerchantVerify({ billersCode, serviceID, extra = {} }) {
   try {
     const res = await axios.post(
       `${env.vtpassBaseUrl}/merchant-verify`,
-      { billersCode, serviceID },
+      { billersCode, serviceID, ...extra },
       { headers: headers(), timeout: 15000 }
     );
     return res.data?.content;

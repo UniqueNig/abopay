@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import DashboardLayout from "../components/DashboardLayout";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
-import { FiAlertTriangle } from "react-icons/fi";
+import { FiAlertTriangle, FiLock, FiKey } from "react-icons/fi";
 
 const Settings = () => {
   const { user, userData, logout } = useAuth();
@@ -13,6 +13,19 @@ const Settings = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [pinResetRequested, setPinResetRequested] = useState(false);
+  const [pinResetSubmitting, setPinResetSubmitting] = useState(false);
+
+  const handleRequestPinReset = async () => {
+    setPinResetSubmitting(true);
+    try {
+      await api.post("/pin-reset-requests", {});
+      setPinResetRequested(true);
+    } catch (err) {
+      setError(err.message || "Could not submit request. Try again.");
+    }
+    setPinResetSubmitting(false);
+  };
 
   const handleRequestDeletion = async () => {
     setSubmitting(true);
@@ -42,6 +55,39 @@ const Settings = () => {
           <p className="text-white font-dm text-sm mb-4">{user?.email}</p>
           <p className="text-white/40 font-dm text-xs uppercase tracking-wider mb-1">Account Number</p>
           <p className="text-white font-dm text-sm">{userData?.accountNumber || "—"}</p>
+        </div>
+
+        <div className="card-glass p-6 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <FiLock className="text-secondary" size={16} />
+            <h2 className="font-syne font-semibold text-white text-sm">Transaction PIN</h2>
+          </div>
+          <p className="text-white/50 font-dm text-sm mb-4">
+            {userData?.hasPin
+              ? "Your 4-digit PIN is required to confirm transfers, bills, and purchases."
+              : "Set a 4-digit PIN — required before you can send money or make purchases."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/set-pin"
+              className="text-secondary hover:text-secondary/80 font-dm text-sm font-medium border border-secondary/25 hover:bg-secondary/10 rounded-xl px-4 py-2.5"
+            >
+              {userData?.hasPin ? "Change PIN" : "Set PIN"}
+            </Link>
+            {userData?.hasPin && (
+              pinResetRequested ? (
+                <p className="text-white/40 font-dm text-xs self-center">Reset request submitted — an admin will review it.</p>
+              ) : (
+                <button
+                  onClick={handleRequestPinReset}
+                  disabled={pinResetSubmitting}
+                  className="flex items-center gap-1.5 text-white/50 hover:text-white font-dm text-sm border border-white/10 rounded-xl px-4 py-2.5 disabled:opacity-60"
+                >
+                  <FiKey size={13} /> {pinResetSubmitting ? "Submitting..." : "Forgot PIN? Request Reset"}
+                </button>
+              )
+            )}
+          </div>
         </div>
 
         <div className="card-glass p-6 border border-red-500/20">

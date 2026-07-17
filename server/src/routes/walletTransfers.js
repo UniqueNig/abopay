@@ -3,6 +3,7 @@ import { body, param, validationResult } from "express-validator";
 import { requireAuth } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { transferBetweenWallets } from "../services/wallet.js";
+import { verifyTransactionPin } from "../services/pin.js";
 import { User } from "../models/User.js";
 
 const router = Router();
@@ -35,17 +36,19 @@ router.post(
     body("accountNumber").isString().trim().isLength({ min: 10, max: 10 }).withMessage("accountNumber must be 10 digits."),
     body("amount").isFloat({ gt: 0 }),
     body("narration").optional().isString().trim().isLength({ max: 100 }),
+    body("pin").isString().matches(/^\d{4}$/).withMessage("A valid 4-digit PIN is required."),
   ],
   async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
 
     try {
-      const { accountNumber, amount, narration } = req.body;
+      const { accountNumber, amount, narration, pin } = req.body;
 
       const sender = await User.findOne({ uid: req.uid });
       if (!sender) throw new ApiError(404, "User not found.");
       if (sender.suspended) throw new ApiError(403, "This account has been suspended.");
+      await verifyTransactionPin(req.uid, pin);
 
       const recipient = await User.findOne({ accountNumber });
       if (!recipient) throw new ApiError(404, "No Abopay account found with that account number.");

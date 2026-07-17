@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from "react";
 import DashboardLayout from "../components/DashboardLayout";
+import PinConfirmModal from "../components/PinConfirmModal";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
 import { BILL_TYPES, formatNaira } from "../utils/helpers";
 import { FiCheckCircle, FiAlertCircle } from "react-icons/fi";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const Bills = () => {
   const { user, userData, fetchUserData } = useAuth();
+  const navigate = useNavigate();
   const [selectedType, setSelectedType] = useState(null);
   const [form, setForm] = useState({ provider: "", meterNumber: "", amount: "", meterType: "prepaid", phone: "" });
   const [success, setSuccess] = useState(false);
@@ -22,8 +24,12 @@ const Bills = () => {
   const [cableVerify, setCableVerify] = useState(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState("");
+  const [elecVerify, setElecVerify] = useState(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinError, setPinError] = useState("");
   const balance = userData?.balance ?? 0;
   const isCable = selectedType?.id === "cable";
+  const isElectricity = selectedType?.id === "electricity";
 
   const handleChange = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
 
@@ -72,9 +78,28 @@ const Bills = () => {
       .finally(() => setVerifyLoading(false));
   }, [isCable, form.provider, form.meterNumber]);
 
-  const displayAmount = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount || 0);
+  // Same trust pattern as cable — confirm the meter is real and show the
+  // owner's name before payment, OPay/PalmPay-style.
+  useEffect(() => {
+    if (!isElectricity || !form.provider || form.meterNumber.length < 10) {
+      setElecVerify(null);
+      setVerifyError("");
+      return;
+    }
+    setVerifyLoading(true);
+    setVerifyError("");
+    setElecVerify(null);
+    api
+      .get(`/vtu/verify-electricity/${form.provider}/${form.meterNumber}?type=${form.meterType || "prepaid"}`)
+      .then((res) => setElecVerify(res))
+      .catch(() => setVerifyError("Could not verify this meter number."))
+      .finally(() => setVerifyLoading(false));
+  }, [isElectricity, form.provider, form.meterNumber, form.meterType]);
 
-  const handlePay = async (e) => {
+  const displayAmount = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount || 0);
+  const verifiedAccountName = isCable ? cableVerify?.customerName : isElectricity ? elecVerify?.customerName : null;
+
+  const handlePayClick = (e) => {
     e.preventDefault();
     setError("");
     const amt = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount);
@@ -82,7 +107,18 @@ const Bills = () => {
     if (!form.phone || form.phone.length < 10) { setError("Enter a valid phone number."); return; }
     if (amt > balance) { setError("Insufficient balance. Please deposit more funds."); return; }
 
+    if (!userData?.hasPin) {
+      navigate("/set-pin", { state: { returnTo: "/bills" } });
+      return;
+    }
+    setPinError("");
+    setShowPinModal(true);
+  };
+
+  const handlePinConfirm = async (pin) => {
+    const amt = isCable ? parseFloat(selectedPlan?.variation_amount || 0) : parseFloat(form.amount);
     setLoading(true);
+    setPinError("");
     try {
       const result = await api.post("/vtu/bill", {
         billType: selectedType.id,
@@ -93,14 +129,17 @@ const Bills = () => {
         meterType: form.meterType || "prepaid",
         variationCode: isCable ? selectedPlan?.variation_code : "",
         phone: form.phone,
+        accountName: verifiedAccountName || undefined,
+        pin,
       });
       await fetchUserData(user.uid);
       setSuccessData(result);
       setPaidAmount(amt);
+      setShowPinModal(false);
       setSuccess(true);
     } catch (err) {
       console.error("Bill pay error:", err);
-      setError(err.message?.includes("Insufficient")
+      setPinError(err.message?.includes("Insufficient")
         ? "Insufficient balance. Please deposit more funds."
         : err.message || "Bill payment failed. Please try again.");
     }
@@ -111,7 +150,7 @@ const Bills = () => {
     setSuccess(false); setSuccessData(null); setPaidAmount(0);
     setSelectedType(null); setForm({ provider: "", meterNumber: "", amount: "", meterType: "prepaid", phone: userData?.phone || "" }); setError("");
     setSelectedPlan(null); setCablePlans([]);
-    setCableVerify(null); setVerifyError("");
+    setCableVerify(null); setElecVerify(null); setVerifyError("");
   };
 
   return (
@@ -193,7 +232,7 @@ const Bills = () => {
                   </div>
                 )}
 
-                <form onSubmit={handlePay} className="flex flex-col gap-4">
+                <form onSubmit={handlePayClick} className="flex flex-col gap-4">
                   {/* Provider buttons */}
                   <div>
                     <label className="text-white/80 font-dm text-sm font-medium mb-2 block">Provider</label>
@@ -246,6 +285,19 @@ const Bills = () => {
                         </div>
                       ) : null
                     )}
+                    {isElectricity && form.meterNumber.length >= 10 && (
+                      verifyLoading ? (
+                        <p className="text-white/40 font-dm text-xs mt-2">Verifying meter...</p>
+                      ) : verifyError ? (
+                        <p className="text-red-400 font-dm text-xs mt-2">{verifyError}</p>
+                      ) : elecVerify?.customerName ? (
+                        <div className="bg-secondary/10 border border-secondary/20 rounded-xl px-4 py-2.5 mt-2">
+                          <p className="text-white/50 font-dm text-[11px] mb-0.5">Verified Meter Owner</p>
+                          <p className="text-secondary font-syne font-semibold text-sm">{elecVerify.customerName}</p>
+                          {elecVerify.address && <p className="text-white/40 font-dm text-xs mt-0.5">{elecVerify.address}</p>}
+                        </div>
+                      ) : null
+                    )}
                   </div>
 
                   <div>
@@ -293,7 +345,7 @@ const Bills = () => {
                     </div>
                   )}
 
-                  <button type="submit" disabled={loading || !form.provider || !form.phone || (isCable && (!selectedPlan || !cableVerify?.customerName))}
+                  <button type="submit" disabled={loading || !form.provider || !form.phone || (isCable && (!selectedPlan || !cableVerify?.customerName)) || (isElectricity && !elecVerify?.customerName)}
                     className="btn-primary mt-2 flex items-center justify-center gap-2 py-4 text-base disabled:opacity-60">
                     {loading ? "Processing..." : `Pay ${displayAmount ? formatNaira(displayAmount) : "Bill"} from Wallet`}
                   </button>
@@ -305,6 +357,17 @@ const Bills = () => {
               </div>
             )}
           </>
+        )}
+
+        {showPinModal && (
+          <PinConfirmModal
+            title="Confirm Payment"
+            subtitle={`Enter your PIN to pay ${formatNaira(displayAmount || 0)}`}
+            onConfirm={handlePinConfirm}
+            onClose={() => { setShowPinModal(false); setPinError(""); }}
+            submitting={loading}
+            error={pinError}
+          />
         )}
       </div>
     </DashboardLayout>

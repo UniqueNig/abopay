@@ -32,9 +32,13 @@ router.post(
 
       const { action } = req.body;
       if (action === "approve") {
-        // Clears any PIN hash so the user is prompted to set a new one —
-        // no-op today since no PIN feature sets this field yet.
-        await User.updateOne({ uid: request.uid }, { transactionPinHash: null });
+        // Clears the PIN hash (prompts a new one on next set) and lifts any
+        // lockout from too many failed attempts — this is the only way a
+        // locked account gets unstuck.
+        await User.updateOne(
+          { uid: request.uid },
+          { transactionPinHash: null, pinAttempts: 0, pinLocked: false }
+        );
       }
 
       request.status = action === "approve" ? "approved" : "rejected";

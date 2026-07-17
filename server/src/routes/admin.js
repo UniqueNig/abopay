@@ -154,7 +154,7 @@ router.get("/users", requireAdmin, async (req, res, next) => {
 
 router.get("/users/:uid", requireAdmin, async (req, res, next) => {
   try {
-    const user = await User.findOne({ uid: req.params.uid }).lean();
+    const user = await User.findOne({ uid: req.params.uid }).select("-transactionPinHash").lean();
     if (!user) throw new ApiError(404, "User not found.");
 
     const transactions = await Transaction.find({ userId: user._id }).sort({ createdAt: -1 }).limit(200).lean();
