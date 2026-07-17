@@ -264,18 +264,18 @@ const AdminUserDetail = () => {
                         i < transactions.length - 1 ? "border-b border-white/5" : ""
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-base">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-base shrink-0">
                           {tx.category || "💳"}
                         </div>
-                        <div>
-                          <p className="text-white font-dm text-sm font-medium">{tx.title}</p>
+                        <div className="min-w-0">
+                          <p className="text-white font-dm text-sm font-medium truncate">{tx.title}</p>
                           <p className="text-white/35 font-dm text-xs">
                             {formatDate(tx.date)} · {formatTime(tx.date)}
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
                         {tx.type === "credit" ? (
                           <FiArrowDownLeft size={13} className="text-secondary" />
                         ) : (

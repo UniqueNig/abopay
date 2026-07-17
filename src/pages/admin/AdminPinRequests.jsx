@@ -82,8 +82,8 @@ const AdminPinRequests = () => {
           <div className="flex flex-col gap-3">
             {requests.map((r) => (
               <div key={r.id} className="card-glass p-5 flex items-center justify-between gap-4">
-                <div>
-                  <Link to={`/admin/users/${r.uid}`} className="text-white font-dm text-sm font-medium hover:text-secondary">{r.email || r.uid}</Link>
+                <div className="min-w-0">
+                  <Link to={`/admin/users/${r.uid}`} className="text-white font-dm text-sm font-medium hover:text-secondary truncate block">{r.email || r.uid}</Link>
                   <p className="text-white/35 font-dm text-xs mt-1">Requested {r.requestedAt ? formatDate(r.requestedAt) : "—"}</p>
                 </div>
                 {r.status === "pending" && (

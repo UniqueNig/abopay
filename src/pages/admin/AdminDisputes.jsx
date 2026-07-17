@@ -124,9 +124,9 @@ const AdminDisputes = () => {
             {disputes.map((d) => (
               <div key={d.id} className="card-glass p-5">
                 <div className="flex items-start justify-between gap-4 mb-3">
-                  <div>
-                    <Link to={`/admin/users/${d.uid}`} className="text-white font-dm text-sm font-medium hover:text-secondary">{d.email || d.uid}</Link>
-                    <p className="text-white/35 font-dm text-xs mt-0.5">Ref: {d.transactionRef || "—"} · {d.createdAt ? formatDate(d.createdAt) : "—"}</p>
+                  <div className="min-w-0">
+                    <Link to={`/admin/users/${d.uid}`} className="text-white font-dm text-sm font-medium hover:text-secondary truncate block">{d.email || d.uid}</Link>
+                    <p className="text-white/35 font-dm text-xs mt-0.5 truncate">Ref: {d.transactionRef || "—"} · {d.createdAt ? formatDate(d.createdAt) : "—"}</p>
                   </div>
                   {d.status === "resolved" && d.refundAmount > 0 && (
                     <span className="text-secondary font-syne font-semibold text-sm shrink-0">Refunded {formatNaira(d.refundAmount)}</span>

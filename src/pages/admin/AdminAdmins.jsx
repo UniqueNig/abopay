@@ -100,13 +100,13 @@ const AdminAdmins = () => {
                 key={a.uid}
                 className={`flex items-center justify-between p-4 ${i < admins.length - 1 ? "border-b border-white/5" : ""}`}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-secondary/15 border border-secondary/20 flex items-center justify-center">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-secondary/15 border border-secondary/20 flex items-center justify-center shrink-0">
                     <FiShield size={15} className="text-secondary" />
                   </div>
-                  <div>
-                    <p className="text-white font-dm text-sm font-medium">{a.displayName || a.email}</p>
-                    <p className="text-white/35 font-dm text-xs">
+                  <div className="min-w-0">
+                    <p className="text-white font-dm text-sm font-medium truncate">{a.displayName || a.email}</p>
+                    <p className="text-white/35 font-dm text-xs truncate">
                       {a.email} · joined {a.createdAt ? formatDate(a.createdAt) : "—"}
                     </p>
                   </div>
@@ -114,7 +114,7 @@ const AdminAdmins = () => {
                 {a.uid !== user?.uid && (
                   <button
                     onClick={() => revoke(a.uid)}
-                    className="flex items-center gap-1.5 text-red-400 hover:bg-red-500/10 font-dm text-xs px-3 py-2 rounded-lg"
+                    className="flex items-center gap-1.5 text-red-400 hover:bg-red-500/10 font-dm text-xs px-3 py-2 rounded-lg shrink-0 ml-2"
                   >
                     <FiX size={13} /> Revoke
                   </button>
