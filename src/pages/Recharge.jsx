@@ -25,7 +25,6 @@ const Recharge = () => {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinError, setPinError] = useState("");
   const [pricing, setPricing] = useState(null);
-  const [couponCode, setCouponCode] = useState("");
   const balance = userData?.balance ?? 0;
 
   useEffect(() => {
@@ -38,9 +37,11 @@ const Recharge = () => {
     ? parseFloat(selectedPlan?.variation_amount || 0)
     : amount === "custom" ? parseFloat(customAmount) : parseFloat(amount);
 
-  const markupPercent = pricing ? (type === "airtime" ? pricing.airtimeDiscountPercent : pricing.dataDiscountPercent) : 0;
-  const fee = finalAmount * (markupPercent / 100);
-  const totalAmount = finalAmount + fee;
+  // VTpass sells airtime/data to resellers below face value, so the discount
+  // here is subtracted from what the customer pays — never added on top.
+  const discountPercent = pricing ? (type === "airtime" ? pricing.airtimeDiscountPercent : pricing.dataDiscountPercent) : 0;
+  const discount = finalAmount * (discountPercent / 100);
+  const totalAmount = Math.max(0, finalAmount - discount);
 
   // Real VTpass plan codes must be fetched per network — a guessed code like
   // "mtn-1000" doesn't match anything VTpass actually offers.
@@ -84,10 +85,9 @@ const Recharge = () => {
     try {
       const path = type === "airtime" ? "/vtu/airtime" : "/vtu/data";
 
-      const trimmedCoupon = couponCode.trim() || undefined;
       const payload = type === "airtime"
-        ? { network: network.id, phone, amount: finalAmount, couponCode: trimmedCoupon, pin }
-        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code, couponCode: trimmedCoupon, pin };
+        ? { network: network.id, phone, amount: finalAmount, pin }
+        : { network: network.id, phone, amount: finalAmount, variationCode: selectedPlan.variation_code, pin };
 
       await api.post(path, payload);
       await fetchUserData(user.uid);
@@ -105,7 +105,7 @@ const Recharge = () => {
   const reset = () => {
     setSuccess(false); setNetwork(null); setPhone("");
     setAmount(""); setCustomAmount(""); setError("");
-    setSelectedPlan(null); setDataPlans([]); setCouponCode("");
+    setSelectedPlan(null); setDataPlans([]);
   };
 
   return (
@@ -249,16 +249,10 @@ const Recharge = () => {
                 </div>
               )}
 
-              <div>
-                <label className="text-white/80 font-dm text-sm font-medium mb-2 block">
-                  Coupon Code <span className="text-white/35 font-normal">(optional)</span>
-                </label>
-                <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value)}
-                  className="input-field text-base uppercase" placeholder="Have a code?" maxLength={20} />
-              </div>
-
-              {fee > 0 && (
-                <p className="text-white/40 font-dm text-xs -mt-2">Fee: {formatNaira(fee)} · Total: {formatNaira(totalAmount)}</p>
+              {discount > 0 && (
+                <p className="text-secondary font-dm text-xs -mt-2">
+                  {formatNaira(discount)} off face value · You pay {formatNaira(totalAmount)}
+                </p>
               )}
 
               <button type="submit"

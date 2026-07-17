@@ -122,13 +122,12 @@ router.post(
     body("network").isString().trim().notEmpty(),
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("amount").isFloat({ gt: 0 }),
-    COUPON_RULE,
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, amount, couponCode, pin } = req.body;
+      const { network, phone, amount, pin } = req.body;
       const serviceID = lookupService("airtime", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
@@ -136,10 +135,16 @@ router.post(
       assertNotMaintenance(settings);
       assertServiceEnabled(settings, "airtime");
 
-      const markup = amount * (settings.pricing.airtimeDiscountPercent / 100);
-      const couponResult = await previewCoupon(couponCode, req.uid, markup);
-      const discount = couponResult?.discount || 0;
-      const chargeAmount = amount + markup - discount;
+      // VTpass sells airtime to resellers below face value (that wholesale
+      // spread is the actual source of profit) — so the customer is charged
+      // face value MINUS this discount, never more. VTpass still gets paid
+      // to deliver the full face-value amount; the admin is responsible for
+      // keeping this discount below whatever wholesale margin VTpass
+      // actually gives this account, which isn't visible from this code.
+      // No coupon support here — there's no safe way to cap a further
+      // stacked discount without knowing that real wholesale rate.
+      const discountAmount = amount * (settings.pricing.airtimeDiscountPercent / 100);
+      const chargeAmount = Math.max(0, amount - discountAmount);
 
       await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
@@ -153,7 +158,7 @@ router.post(
         ref,
         title,
         "📱",
-        { network, phone, amount, fee: markup, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount },
+        { network, phone, amount, discount: discountAmount },
         () => vtpassPay({ request_id: requestId, serviceID, amount, phone, billersCode: phone, quantity: 1 })
       );
 
@@ -162,8 +167,6 @@ router.post(
         { reference: ref },
         { $set: { "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId, "meta.deliveryStatus": txStatus } }
       );
-
-      if (couponResult) await recordRedemption(couponResult.coupon._id, req.uid, ref);
 
       res.json({ success: true, status: txStatus, requestId, reference: ref, amountCharged: chargeAmount });
     } catch (err) {
@@ -180,13 +183,12 @@ router.post(
     body("phone").isString().trim().isLength({ min: 10, max: 11 }),
     body("variationCode").isString().trim().notEmpty(),
     body("amount").isFloat({ gt: 0 }),
-    COUPON_RULE,
     PIN_RULE,
   ],
   async (req, res, next) => {
     if (!checkValidation(req, res)) return;
     try {
-      const { network, phone, variationCode, amount, couponCode, pin } = req.body;
+      const { network, phone, variationCode, amount, pin } = req.body;
       const serviceID = lookupService("data", network.toLowerCase());
       if (!serviceID) throw new ApiError(400, `Unknown network: ${network}`);
 
@@ -194,10 +196,10 @@ router.post(
       assertNotMaintenance(settings);
       assertServiceEnabled(settings, "data");
 
-      const markup = amount * (settings.pricing.dataDiscountPercent / 100);
-      const couponResult = await previewCoupon(couponCode, req.uid, markup);
-      const discount = couponResult?.discount || 0;
-      const chargeAmount = amount + markup - discount;
+      // Same discount-off-face-value model as airtime above — see that
+      // route's comment for why this is subtracted rather than added.
+      const discountAmount = amount * (settings.pricing.dataDiscountPercent / 100);
+      const chargeAmount = Math.max(0, amount - discountAmount);
 
       await requireBalanceAndPin(req.uid, chargeAmount, pin);
 
@@ -211,7 +213,7 @@ router.post(
         ref,
         title,
         "📶",
-        { network, phone, variationCode, amount, fee: markup, couponCode: couponResult ? couponResult.coupon.code : null, couponDiscount: discount },
+        { network, phone, variationCode, amount, discount: discountAmount },
         () => vtpassPay({ request_id: requestId, serviceID, billersCode: phone, variation_code: variationCode, amount, phone, quantity: 1 })
       );
 
@@ -220,8 +222,6 @@ router.post(
         { reference: ref },
         { $set: { "meta.vtpassTxId": vtpassRes?.content?.transactions?.transactionId, "meta.deliveryStatus": txStatus } }
       );
-
-      if (couponResult) await recordRedemption(couponResult.coupon._id, req.uid, ref);
 
       res.json({ success: true, status: txStatus, requestId, reference: ref, amountCharged: chargeAmount });
     } catch (err) {
